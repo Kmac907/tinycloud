@@ -65,6 +65,24 @@ type Operation struct {
 	UpdatedAt      string
 }
 
+type BlobContainer struct {
+	AccountName string
+	Name        string
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type BlobObject struct {
+	AccountName   string
+	ContainerName string
+	Name          string
+	ContentType   string
+	Body          []byte
+	ETag          string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 type Summary struct {
 	TenantCount       int
 	SubscriptionCount int
@@ -552,6 +570,265 @@ WHERE subscription_id = ? AND id = ?`, subscriptionID, operationID).Scan(
 	return operation, nil
 }
 
+func (s *Store) CreateBlobContainer(accountName, name string) (BlobContainer, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return BlobContainer{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return BlobContainer{}, false, err
+	}
+
+	var existing BlobContainer
+	err = db.QueryRow(`
+SELECT account_name, name, created_at, updated_at
+FROM blob_containers
+WHERE account_name = ? AND name = ?`, accountName, name).Scan(
+		&existing.AccountName,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return BlobContainer{}, false, fmt.Errorf("read blob container: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO blob_containers (account_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, accountName, name, nowValue, nowValue); err != nil {
+		return BlobContainer{}, false, fmt.Errorf("create blob container: %w", err)
+	}
+
+	return BlobContainer{
+		AccountName: accountName,
+		Name:        name,
+		CreatedAt:   nowValue,
+		UpdatedAt:   nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListBlobContainers(accountName string) ([]BlobContainer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM blob_containers
+WHERE account_name = ?
+ORDER BY name`, accountName)
+	if err != nil {
+		return nil, fmt.Errorf("list blob containers: %w", err)
+	}
+	defer rows.Close()
+
+	var containers []BlobContainer
+	for rows.Next() {
+		var container BlobContainer
+		if err := rows.Scan(&container.AccountName, &container.Name, &container.CreatedAt, &container.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan blob container: %w", err)
+		}
+		containers = append(containers, container)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate blob containers: %w", err)
+	}
+	return containers, nil
+}
+
+func (s *Store) PutBlob(accountName, containerName, blobName, contentType string, body []byte) (BlobObject, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return BlobObject{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return BlobObject{}, err
+	}
+
+	var containerExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM blob_containers WHERE account_name = ? AND name = ?
+)`, accountName, containerName).Scan(&containerExists); err != nil {
+		return BlobObject{}, fmt.Errorf("query blob container: %w", err)
+	}
+	if !containerExists {
+		return BlobObject{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	etag := fmt.Sprintf("\"%d\"", time.Now().UTC().UnixNano())
+
+	var createdAt string
+	err = db.QueryRow(`
+SELECT created_at
+FROM blobs
+WHERE account_name = ? AND container_name = ? AND name = ?`, accountName, containerName, blobName).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return BlobObject{}, fmt.Errorf("read blob timestamps: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO blobs (
+    account_name, container_name, name, content_type, body, etag, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_name, container_name, name) DO UPDATE SET
+    content_type = excluded.content_type,
+    body = excluded.body,
+    etag = excluded.etag,
+    updated_at = excluded.updated_at
+`, accountName, containerName, blobName, contentType, body, etag, createdAt, nowValue); err != nil {
+		return BlobObject{}, fmt.Errorf("put blob: %w", err)
+	}
+
+	return BlobObject{
+		AccountName:   accountName,
+		ContainerName: containerName,
+		Name:          blobName,
+		ContentType:   contentType,
+		Body:          append([]byte(nil), body...),
+		ETag:          etag,
+		CreatedAt:     createdAt,
+		UpdatedAt:     nowValue,
+	}, nil
+}
+
+func (s *Store) GetBlob(accountName, containerName, blobName string) (BlobObject, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return BlobObject{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return BlobObject{}, err
+	}
+
+	var blob BlobObject
+	err = db.QueryRow(`
+SELECT account_name, container_name, name, content_type, body, etag, created_at, updated_at
+FROM blobs
+WHERE account_name = ? AND container_name = ? AND name = ?`, accountName, containerName, blobName).Scan(
+		&blob.AccountName,
+		&blob.ContainerName,
+		&blob.Name,
+		&blob.ContentType,
+		&blob.Body,
+		&blob.ETag,
+		&blob.CreatedAt,
+		&blob.UpdatedAt,
+	)
+	if err != nil {
+		return BlobObject{}, err
+	}
+	return blob, nil
+}
+
+func (s *Store) ListBlobs(accountName, containerName string) ([]BlobObject, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, container_name, name, content_type, body, etag, created_at, updated_at
+FROM blobs
+WHERE account_name = ? AND container_name = ?
+ORDER BY name`, accountName, containerName)
+	if err != nil {
+		return nil, fmt.Errorf("list blobs: %w", err)
+	}
+	defer rows.Close()
+
+	var blobs []BlobObject
+	for rows.Next() {
+		var blob BlobObject
+		if err := rows.Scan(
+			&blob.AccountName,
+			&blob.ContainerName,
+			&blob.Name,
+			&blob.ContentType,
+			&blob.Body,
+			&blob.ETag,
+			&blob.CreatedAt,
+			&blob.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan blob: %w", err)
+		}
+		blobs = append(blobs, blob)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate blobs: %w", err)
+	}
+	return blobs, nil
+}
+
+func (s *Store) DeleteBlob(accountName, containerName, blobName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM blobs
+WHERE account_name = ? AND container_name = ? AND name = ?`, accountName, containerName, blobName)
+	if err != nil {
+		return fmt.Errorf("delete blob: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete blob rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) openLocked() (*sql.DB, error) {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
@@ -578,6 +855,24 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE TABLE IF NOT EXISTS providers (
     namespace TEXT PRIMARY KEY,
     registration_state TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS blob_containers (
+    account_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, name)
+);
+CREATE TABLE IF NOT EXISTS blobs (
+    account_name TEXT NOT NULL,
+    container_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    body BLOB NOT NULL,
+    etag TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, container_name, name)
 );
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,

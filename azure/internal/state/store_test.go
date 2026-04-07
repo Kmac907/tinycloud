@@ -282,3 +282,70 @@ func TestRegisterProviderPersists(t *testing.T) {
 		t.Fatalf("Namespace = %q, want %q", got.Namespace, "Microsoft.Custom")
 	}
 }
+
+func TestBlobContainerAndBlobRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	container, created, err := store.CreateBlobContainer("devstoreaccount1", "images")
+	if err != nil {
+		t.Fatalf("CreateBlobContainer() error = %v", err)
+	}
+	if !created {
+		t.Fatal("CreateBlobContainer() created = false, want true")
+	}
+	if container.Name != "images" {
+		t.Fatalf("Name = %q, want %q", container.Name, "images")
+	}
+
+	blob, err := store.PutBlob("devstoreaccount1", "images", "logo.txt", "text/plain", []byte("tinycloud"))
+	if err != nil {
+		t.Fatalf("PutBlob() error = %v", err)
+	}
+	if blob.ETag == "" {
+		t.Fatal("ETag is empty")
+	}
+
+	got, err := store.GetBlob("devstoreaccount1", "images", "logo.txt")
+	if err != nil {
+		t.Fatalf("GetBlob() error = %v", err)
+	}
+	if string(got.Body) != "tinycloud" {
+		t.Fatalf("Body = %q, want %q", string(got.Body), "tinycloud")
+	}
+
+	containers, err := store.ListBlobContainers("devstoreaccount1")
+	if err != nil {
+		t.Fatalf("ListBlobContainers() error = %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("len(containers) = %d, want %d", len(containers), 1)
+	}
+
+	blobs, err := store.ListBlobs("devstoreaccount1", "images")
+	if err != nil {
+		t.Fatalf("ListBlobs() error = %v", err)
+	}
+	if len(blobs) != 1 {
+		t.Fatalf("len(blobs) = %d, want %d", len(blobs), 1)
+	}
+
+	if err := store.DeleteBlob("devstoreaccount1", "images", "logo.txt"); err != nil {
+		t.Fatalf("DeleteBlob() error = %v", err)
+	}
+	blobs, err = store.ListBlobs("devstoreaccount1", "images")
+	if err != nil {
+		t.Fatalf("ListBlobs() after delete error = %v", err)
+	}
+	if len(blobs) != 0 {
+		t.Fatalf("len(blobs) after delete = %d, want %d", len(blobs), 0)
+	}
+}
