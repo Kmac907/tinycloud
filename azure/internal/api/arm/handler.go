@@ -22,6 +22,9 @@ func NewHandler(store *state.Store) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /subscriptions", h.listSubscriptions)
 	mux.HandleFunc("GET /providers", h.listProviders)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers", h.listProviders)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{namespace}", h.getProvider)
+	mux.HandleFunc("POST /subscriptions/{subscriptionId}/providers/{namespace}/register", h.registerProvider)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Resources/operations/{operationId}", h.getOperation)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups", h.listResourceGroups)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", h.putResourceGroup)
@@ -66,6 +69,29 @@ func (h *Handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) getProvider(w http.ResponseWriter, r *http.Request) {
+	provider, err := h.store.GetProvider(r.PathValue("namespace"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ProviderNotFound", "the provider was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, providerResponse(provider))
+}
+
+func (h *Handler) registerProvider(w http.ResponseWriter, r *http.Request) {
+	provider, err := h.store.RegisterProvider(r.PathValue("namespace"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, providerResponse(provider))
 }
 
 func (h *Handler) listResourceGroups(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +231,13 @@ func resourceGroupResponse(resourceGroup state.ResourceGroup) map[string]any {
 		"properties": map[string]any{
 			"provisioningState": resourceGroup.ProvisioningState,
 		},
+	}
+}
+
+func providerResponse(provider state.Provider) map[string]any {
+	return map[string]any{
+		"namespace":         provider.Namespace,
+		"registrationState": provider.RegistrationState,
 	}
 }
 

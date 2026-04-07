@@ -36,8 +36,8 @@ func TestInitCreatesSQLiteDatabase(t *testing.T) {
 	if summary.SubscriptionCount != 1 {
 		t.Fatalf("Summary().SubscriptionCount = %d, want %d", summary.SubscriptionCount, 1)
 	}
-	if summary.ProviderCount != 1 {
-		t.Fatalf("Summary().ProviderCount = %d, want %d", summary.ProviderCount, 1)
+	if summary.ProviderCount != 3 {
+		t.Fatalf("Summary().ProviderCount = %d, want %d", summary.ProviderCount, 3)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestRestoreLoadsSnapshotIntoSQLite(t *testing.T) {
 	if summary.ResourceCount != 1 {
 		t.Fatalf("Summary().ResourceCount = %d, want %d", summary.ResourceCount, 1)
 	}
-	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 1 {
-		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 1)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 3 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 3)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 
 	exportPath := filepath.Join(root, "export.json")
@@ -146,8 +146,8 @@ func TestInitIsIdempotentForBootstrapRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Summary() error = %v", err)
 	}
-	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 1 {
-		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 1)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 3 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 3)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 }
 
@@ -175,8 +175,8 @@ func TestListBootstrapEntities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)
 	}
-	if len(providers) != 1 {
-		t.Fatalf("len(providers) = %d, want %d", len(providers), 1)
+	if len(providers) != 3 {
+		t.Fatalf("len(providers) = %d, want %d", len(providers), 3)
 	}
 }
 
@@ -251,5 +251,34 @@ func TestOperationsRoundTrip(t *testing.T) {
 	}
 	if got.Status != "Succeeded" {
 		t.Fatalf("Status = %q, want %q", got.Status, "Succeeded")
+	}
+}
+
+func TestRegisterProviderPersists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	provider, err := store.RegisterProvider("Microsoft.Custom")
+	if err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	if provider.RegistrationState != "Registered" {
+		t.Fatalf("RegistrationState = %q, want %q", provider.RegistrationState, "Registered")
+	}
+
+	got, err := store.GetProvider("Microsoft.Custom")
+	if err != nil {
+		t.Fatalf("GetProvider() error = %v", err)
+	}
+	if got.Namespace != "Microsoft.Custom" {
+		t.Fatalf("Namespace = %q, want %q", got.Namespace, "Microsoft.Custom")
 	}
 }

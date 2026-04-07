@@ -74,8 +74,72 @@ func TestListProvidersReturnsBootstrapProvider(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if len(body.Value) != 1 {
-		t.Fatalf("len(value) = %d, want %d", len(body.Value), 1)
+	if len(body.Value) != 3 {
+		t.Fatalf("len(value) = %d, want %d", len(body.Value), 3)
+	}
+}
+
+func TestGetProviderReturnsBootstrapProvider(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store).Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/providers/Microsoft.Storage?api-version=2024-01-01", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body["namespace"] != "Microsoft.Storage" {
+		t.Fatalf("namespace = %v, want %q", body["namespace"], "Microsoft.Storage")
+	}
+}
+
+func TestRegisterProviderUpdatesState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/subscriptions/test-sub/providers/Microsoft.Custom/register?api-version=2024-01-01", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	provider, err := store.GetProvider("Microsoft.Custom")
+	if err != nil {
+		t.Fatalf("GetProvider() error = %v", err)
+	}
+	if provider.RegistrationState != "Registered" {
+		t.Fatalf("RegistrationState = %q, want %q", provider.RegistrationState, "Registered")
 	}
 }
 

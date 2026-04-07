@@ -77,8 +77,13 @@ type Summary struct {
 const (
 	defaultTenantID       = "00000000-0000-0000-0000-000000000001"
 	defaultSubscriptionID = "11111111-1111-1111-1111-111111111111"
-	defaultProvider       = "Microsoft.Resources"
 )
+
+var defaultProviders = []string{
+	"Microsoft.Resources",
+	"Microsoft.Storage",
+	"Microsoft.KeyVault",
+}
 
 func NewStore(root string) (*Store, error) {
 	if root == "" {
@@ -274,6 +279,58 @@ func (s *Store) ListProviders() ([]Provider, error) {
 		return nil, fmt.Errorf("iterate providers: %w", err)
 	}
 	return providers, nil
+}
+
+func (s *Store) GetProvider(namespace string) (Provider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Provider{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Provider{}, err
+	}
+
+	var provider Provider
+	err = db.QueryRow(`SELECT namespace, registration_state FROM providers WHERE namespace = ?`, namespace).Scan(
+		&provider.Namespace,
+		&provider.RegistrationState,
+	)
+	if err != nil {
+		return Provider{}, err
+	}
+	return provider, nil
+}
+
+func (s *Store) RegisterProvider(namespace string) (Provider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Provider{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Provider{}, err
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO providers (namespace, registration_state) VALUES (?, 'Registered')
+ON CONFLICT(namespace) DO UPDATE SET registration_state = 'Registered'
+`, namespace); err != nil {
+		return Provider{}, fmt.Errorf("register provider: %w", err)
+	}
+
+	return Provider{
+		Namespace:         namespace,
+		RegistrationState: "Registered",
+	}, nil
 }
 
 func (s *Store) UpsertResourceGroup(subscriptionID, name, location, managedBy string, tags map[string]string) (ResourceGroup, error) {
@@ -616,10 +673,16 @@ INSERT INTO tenants (id) VALUES (?)
 ON CONFLICT(id) DO NOTHING;
 INSERT INTO subscriptions (id, tenant_id) VALUES (?, ?)
 ON CONFLICT(id) DO NOTHING;
+`, defaultTenantID, defaultSubscriptionID, defaultTenantID); err != nil {
+		return fmt.Errorf("ensure bootstrap records: %w", err)
+	}
+	for _, namespace := range defaultProviders {
+		if _, err := db.Exec(`
 INSERT INTO providers (namespace, registration_state) VALUES (?, 'Registered')
 ON CONFLICT(namespace) DO NOTHING;
-`, defaultTenantID, defaultSubscriptionID, defaultTenantID, defaultProvider); err != nil {
-		return fmt.Errorf("ensure bootstrap records: %w", err)
+`, namespace); err != nil {
+			return fmt.Errorf("ensure bootstrap provider %s: %w", namespace, err)
+		}
 	}
 	return nil
 }
