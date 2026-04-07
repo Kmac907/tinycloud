@@ -68,7 +68,7 @@ docker run --rm -p 4566:4566 -v "${PWD}\data:/var/lib/tinycloud" tinycloud-azure
 | CLI init/status | local | `tinycloud init` and `tinycloud status` complete with a writable local `TINYCLOUD_DATA_ROOT` |
 | Snapshot default path | local | `tinycloud snapshot create` writes under the configured data root |
 | Admin health/metrics | local | `/_admin/healthz` and `/_admin/metrics` return `200` |
-| Metadata discovery | local | `/metadata/endpoints` returns ARM, auth, and service URLs |
+| Metadata discovery | local | `/metadata/endpoints` returns ARM, auth, provider, and service URLs |
 | Identity endpoints | local | `/metadata/identity` and `/oauth/token` return stable local auth metadata |
 | Blob data-plane | local or Docker | create a storage account, then create/list/upload/download blobs on port `4577` |
 | Container boot | Docker | `docker run` starts `tinycloudd` successfully |

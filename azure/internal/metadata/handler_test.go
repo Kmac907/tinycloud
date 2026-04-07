@@ -28,19 +28,32 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	var body struct {
 		TenantID       string            `json:"tenantId"`
 		SubscriptionID string            `json:"subscriptionId"`
+		Environment    string            `json:"environment"`
+		Authentication map[string]string `json:"authentication"`
 		Management     map[string]string `json:"management"`
+		ResourceMgr    map[string]any    `json:"resourceManager"`
 		Services       map[string]string `json:"services"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
+	if body.Environment != "TinyCloudLocal" {
+		t.Fatalf("environment = %q, want %q", body.Environment, "TinyCloudLocal")
+	}
 	if body.TenantID != cfg.TenantID {
 		t.Fatalf("tenantId = %q, want %q", body.TenantID, cfg.TenantID)
+	}
+	if body.Authentication["oauthToken"] != cfg.OAuthTokenURL() {
+		t.Fatalf("authentication.oauthToken = %q, want %q", body.Authentication["oauthToken"], cfg.OAuthTokenURL())
 	}
 	if body.Management["oauth"] != cfg.OAuthTokenURL() {
 		t.Fatalf("management.oauth = %q, want %q", body.Management["oauth"], cfg.OAuthTokenURL())
 	}
 	if body.Services["blob"] != cfg.BlobURL() {
 		t.Fatalf("services.blob = %q, want %q", body.Services["blob"], cfg.BlobURL())
+	}
+	providers, _ := body.ResourceMgr["providers"].([]any)
+	if len(providers) != 3 {
+		t.Fatalf("len(resourceManager.providers) = %d, want %d", len(providers), 3)
 	}
 }
