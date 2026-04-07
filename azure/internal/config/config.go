@@ -105,12 +105,16 @@ func (c Config) EffectiveTokenIssuer() string {
 
 func (c Config) EndpointMap() map[string]string {
 	return map[string]string{
-		"management": c.ManagementHTTPURL(),
-		"blob":       c.BlobURL(),
-		"queue":      c.QueueURL(),
-		"table":      c.TableURL(),
-		"keyVault":   c.KeyVaultURL(),
-		"serviceBus": c.ServiceBusURL(),
+		"management":      c.ManagementHTTPURL(),
+		"managementHttps": c.ManagementTLSURL(),
+		"metadata":        fmt.Sprintf("%s/metadata/endpoints", c.ManagementHTTPURL()),
+		"identity":        fmt.Sprintf("%s/metadata/identity", c.ManagementHTTPURL()),
+		"oauthToken":      c.OAuthTokenURL(),
+		"blob":            c.BlobURL(),
+		"queue":           c.QueueURL(),
+		"table":           c.TableURL(),
+		"keyVault":        c.KeyVaultURL(),
+		"serviceBus":      c.ServiceBusURL(),
 	}
 }
 
