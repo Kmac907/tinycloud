@@ -17,6 +17,12 @@ type Config struct {
 	KeyVault       string
 	ServiceBus     string
 	DataRoot       string
+	TenantID       string
+	SubscriptionID string
+	TokenIssuer    string
+	TokenAudience  string
+	TokenSubject   string
+	TokenKey       string
 }
 
 func FromEnv() Config {
@@ -37,6 +43,12 @@ func FromEnv() Config {
 		KeyVault:       envOrDefault("TINYCLOUD_KEYVAULT_PORT", "4580"),
 		ServiceBus:     envOrDefault("TINYCLOUD_SERVICEBUS_PORT", "4581"),
 		DataRoot:       envOrDefault("TINYCLOUD_DATA_ROOT", defaultDataRoot()),
+		TenantID:       envOrDefault("TINYCLOUD_TENANT_ID", defaultTenantID()),
+		SubscriptionID: envOrDefault("TINYCLOUD_SUBSCRIPTION_ID", defaultSubscriptionID()),
+		TokenIssuer:    envOrDefault("TINYCLOUD_TOKEN_ISSUER", ""),
+		TokenAudience:  envOrDefault("TINYCLOUD_TOKEN_AUDIENCE", "https://management.azure.com/"),
+		TokenSubject:   envOrDefault("TINYCLOUD_TOKEN_SUBJECT", "tinycloud-local-user"),
+		TokenKey:       envOrDefault("TINYCLOUD_TOKEN_KEY", "tinycloud-dev-signing-key"),
 	}
 }
 
@@ -52,10 +64,62 @@ func (c Config) ManagementHTTPURL() string {
 	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.ManagementHTTP)
 }
 
+func (c Config) ManagementTLSURL() string {
+	return fmt.Sprintf("https://%s:%s", c.AdvertiseHost, c.ManagementTLS)
+}
+
+func (c Config) BlobURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.Blob)
+}
+
+func (c Config) QueueURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.Queue)
+}
+
+func (c Config) TableURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.Table)
+}
+
+func (c Config) KeyVaultURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.KeyVault)
+}
+
+func (c Config) ServiceBusURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.ServiceBus)
+}
+
+func (c Config) OAuthTokenURL() string {
+	return fmt.Sprintf("%s/oauth/token", c.ManagementHTTPURL())
+}
+
+func (c Config) ManagedIdentityURL() string {
+	return fmt.Sprintf("%s/metadata/identity/oauth2/token", c.ManagementHTTPURL())
+}
+
+func (c Config) EffectiveTokenIssuer() string {
+	if c.TokenIssuer != "" {
+		return c.TokenIssuer
+	}
+	return c.OAuthTokenURL()
+}
+
 func (c Config) EndpointMap() map[string]string {
 	return map[string]string{
 		"management": c.ManagementHTTPURL(),
+		"blob":       c.BlobURL(),
+		"queue":      c.QueueURL(),
+		"table":      c.TableURL(),
+		"keyVault":   c.KeyVaultURL(),
+		"serviceBus": c.ServiceBusURL(),
 	}
+}
+
+func defaultTenantID() string {
+	return "00000000-0000-0000-0000-000000000001"
+}
+
+func defaultSubscriptionID() string {
+	return "11111111-1111-1111-1111-111111111111"
 }
 
 func defaultDataRoot() string {

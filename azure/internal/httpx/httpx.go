@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -46,4 +47,8 @@ func RequestID(ctx context.Context) string {
 
 func NewRequestID(seed []byte) string {
 	return hex.EncodeToString(seed)
+}
+
+func DecodeBase64URL(value string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(value)
 }
