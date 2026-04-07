@@ -32,6 +32,20 @@ type ResourceGroup struct {
 	Tags     map[string]string `json:"tags"`
 }
 
+type Tenant struct {
+	ID string
+}
+
+type Subscription struct {
+	ID       string
+	TenantID string
+}
+
+type Provider struct {
+	Namespace         string
+	RegistrationState string
+}
+
 type Summary struct {
 	TenantCount       int
 	SubscriptionCount int
@@ -173,6 +187,74 @@ func (s *Store) Restore(path string) error {
 
 func (s *Store) ApplySeed(path string) error {
 	return s.Restore(path)
+}
+
+func (s *Store) ListSubscriptions() ([]Subscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`SELECT id, tenant_id FROM subscriptions ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []Subscription
+	for rows.Next() {
+		var subscription Subscription
+		if err := rows.Scan(&subscription.ID, &subscription.TenantID); err != nil {
+			return nil, fmt.Errorf("scan subscription: %w", err)
+		}
+		subscriptions = append(subscriptions, subscription)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate subscriptions: %w", err)
+	}
+	return subscriptions, nil
+}
+
+func (s *Store) ListProviders() ([]Provider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`SELECT namespace, registration_state FROM providers ORDER BY namespace`)
+	if err != nil {
+		return nil, fmt.Errorf("list providers: %w", err)
+	}
+	defer rows.Close()
+
+	var providers []Provider
+	for rows.Next() {
+		var provider Provider
+		if err := rows.Scan(&provider.Namespace, &provider.RegistrationState); err != nil {
+			return nil, fmt.Errorf("scan provider: %w", err)
+		}
+		providers = append(providers, provider)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate providers: %w", err)
+	}
+	return providers, nil
 }
 
 func (s *Store) openLocked() (*sql.DB, error) {

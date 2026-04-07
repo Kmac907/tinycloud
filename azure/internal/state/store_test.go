@@ -150,3 +150,32 @@ func TestInitIsIdempotentForBootstrapRecords(t *testing.T) {
 		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 1)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 }
+
+func TestListBootstrapEntities(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	subscriptions, err := store.ListSubscriptions()
+	if err != nil {
+		t.Fatalf("ListSubscriptions() error = %v", err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("len(subscriptions) = %d, want %d", len(subscriptions), 1)
+	}
+
+	providers, err := store.ListProviders()
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("len(providers) = %d, want %d", len(providers), 1)
+	}
+}

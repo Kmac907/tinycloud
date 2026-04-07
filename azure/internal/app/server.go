@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tinycloud/internal/api/admin"
+	"tinycloud/internal/api/arm"
 	"tinycloud/internal/config"
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/metadata"
@@ -35,6 +36,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	admin.NewHandler(s.store, s.cfg.DataRoot).Register(mux)
+	arm.NewHandler(s.store).Register(mux)
 	metadata.NewHandler(s.cfg).Register(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]string{
