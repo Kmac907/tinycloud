@@ -30,6 +30,15 @@ func TestInitCreatesSQLiteDatabase(t *testing.T) {
 	if _, err := os.Stat(wantPath); err != nil {
 		t.Fatalf("Stat(%q) error = %v", wantPath, err)
 	}
+	if summary.TenantCount != 1 {
+		t.Fatalf("Summary().TenantCount = %d, want %d", summary.TenantCount, 1)
+	}
+	if summary.SubscriptionCount != 1 {
+		t.Fatalf("Summary().SubscriptionCount = %d, want %d", summary.SubscriptionCount, 1)
+	}
+	if summary.ProviderCount != 1 {
+		t.Fatalf("Summary().ProviderCount = %d, want %d", summary.ProviderCount, 1)
+	}
 }
 
 func TestSnapshotCreatesParentDirectories(t *testing.T) {
@@ -95,6 +104,9 @@ func TestRestoreLoadsSnapshotIntoSQLite(t *testing.T) {
 	if summary.ResourceCount != 1 {
 		t.Fatalf("Summary().ResourceCount = %d, want %d", summary.ResourceCount, 1)
 	}
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 1 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 1)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
+	}
 
 	exportPath := filepath.Join(root, "export.json")
 	if err := store.Snapshot(exportPath); err != nil {
@@ -111,5 +123,30 @@ func TestRestoreLoadsSnapshotIntoSQLite(t *testing.T) {
 	}
 	if _, ok := doc.Resources["/subscriptions/sub-123/resourceGroups/rg-test"]; !ok {
 		t.Fatal("exported snapshot is missing restored resource group")
+	}
+}
+
+func TestInitIsIdempotentForBootstrapRecords(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() first error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() second error = %v", err)
+	}
+
+	summary, err := store.Summary()
+	if err != nil {
+		t.Fatalf("Summary() error = %v", err)
+	}
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 1 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 1)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 }

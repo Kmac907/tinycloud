@@ -44,9 +44,12 @@ func (h *Handler) metrics(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"resourceCount": summary.ResourceCount,
-		"updatedAt":     summary.UpdatedAt,
-		"statePath":     summary.StatePath,
+		"tenantCount":       summary.TenantCount,
+		"subscriptionCount": summary.SubscriptionCount,
+		"providerCount":     summary.ProviderCount,
+		"resourceCount":     summary.ResourceCount,
+		"updatedAt":         summary.UpdatedAt,
+		"statePath":         summary.StatePath,
 	})
 }
 

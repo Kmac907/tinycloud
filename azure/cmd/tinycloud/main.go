@@ -49,7 +49,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "state=%s\nresources=%d\nupdatedAt=%s\n", summary.StatePath, summary.ResourceCount, summary.UpdatedAt)
+		_, err = fmt.Fprintf(stdout, "state=%s\ntenants=%d\nsubscriptions=%d\nproviders=%d\nresources=%d\nupdatedAt=%s\n",
+			summary.StatePath,
+			summary.TenantCount,
+			summary.SubscriptionCount,
+			summary.ProviderCount,
+			summary.ResourceCount,
+			summary.UpdatedAt,
+		)
 		return err
 	case "endpoints":
 		for name, value := range cfg.EndpointMap() {

@@ -33,10 +33,19 @@ type ResourceGroup struct {
 }
 
 type Summary struct {
-	StatePath     string
-	ResourceCount int
-	UpdatedAt     string
+	TenantCount       int
+	SubscriptionCount int
+	ProviderCount     int
+	StatePath         string
+	ResourceCount     int
+	UpdatedAt         string
 }
+
+const (
+	defaultTenantID       = "00000000-0000-0000-0000-000000000001"
+	defaultSubscriptionID = "11111111-1111-1111-1111-111111111111"
+	defaultProvider       = "Microsoft.Resources"
+)
 
 func NewStore(root string) (*Store, error) {
 	if root == "" {
@@ -75,11 +84,26 @@ func (s *Store) Summary() (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
+	tenantCount, err := s.countLocked(db, "tenants")
+	if err != nil {
+		return Summary{}, err
+	}
+	subscriptionCount, err := s.countLocked(db, "subscriptions")
+	if err != nil {
+		return Summary{}, err
+	}
+	providerCount, err := s.countLocked(db, "providers")
+	if err != nil {
+		return Summary{}, err
+	}
 
 	return Summary{
-		StatePath:     s.dbPath,
-		ResourceCount: len(doc.Resources),
-		UpdatedAt:     doc.UpdatedAt,
+		TenantCount:       tenantCount,
+		SubscriptionCount: subscriptionCount,
+		ProviderCount:     providerCount,
+		StatePath:         s.dbPath,
+		ResourceCount:     len(doc.Resources),
+		UpdatedAt:         doc.UpdatedAt,
 	}, nil
 }
 
@@ -167,6 +191,17 @@ CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tenants (
+    id TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS providers (
+    namespace TEXT PRIMARY KEY,
+    registration_state TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS resource_groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -185,10 +220,12 @@ func (s *Store) ensureDocumentLocked(db *sql.DB) error {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM metadata WHERE key = 'version'`).Scan(&count); err != nil {
 		return fmt.Errorf("query state metadata: %w", err)
 	}
-	if count > 0 {
-		return nil
+	if count == 0 {
+		if err := s.writeLocked(db, newDocument()); err != nil {
+			return err
+		}
 	}
-	return s.writeLocked(db, newDocument())
+	return s.ensureBootstrapLocked(db)
 }
 
 func (s *Store) readLocked(db *sql.DB) (Document, error) {
@@ -230,6 +267,28 @@ func (s *Store) readLocked(db *sql.DB) (Document, error) {
 	}
 
 	return doc, nil
+}
+
+func (s *Store) ensureBootstrapLocked(db *sql.DB) error {
+	if _, err := db.Exec(`
+INSERT INTO tenants (id) VALUES (?)
+ON CONFLICT(id) DO NOTHING;
+INSERT INTO subscriptions (id, tenant_id) VALUES (?, ?)
+ON CONFLICT(id) DO NOTHING;
+INSERT INTO providers (namespace, registration_state) VALUES (?, 'Registered')
+ON CONFLICT(namespace) DO NOTHING;
+`, defaultTenantID, defaultSubscriptionID, defaultTenantID, defaultProvider); err != nil {
+		return fmt.Errorf("ensure bootstrap records: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) countLocked(db *sql.DB, table string) (int, error) {
+	var count int
+	if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count %s: %w", table, err)
+	}
+	return count, nil
 }
 
 func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
