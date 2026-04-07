@@ -1,0 +1,70 @@
+# TinyCloud Azure Emulator
+
+TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single Docker container. The current repository includes the foundation runtime:
+
+- local CLI entrypoint: `tinycloud`
+- long-running daemon: `tinycloudd`
+- admin endpoints for health, metrics, reset, snapshot, and seed
+- metadata endpoint at `/metadata/endpoints`
+- Docker image with non-root runtime and persistent data root at `/var/lib/tinycloud`
+
+## Local smoke test
+
+Run from `azure/`:
+
+```powershell
+$env:TINYCLOUD_DATA_ROOT="$PWD\data"
+go run .\cmd\tinycloud init
+go run .\cmd\tinycloud status
+go run .\cmd\tinycloud snapshot create
+go run .\cmd\tinycloudd
+```
+
+In a second terminal:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4566/_admin/healthz
+Invoke-RestMethod http://127.0.0.1:4566/_admin/metrics
+Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/snapshot
+Invoke-RestMethod http://127.0.0.1:4566/metadata/endpoints
+```
+
+## Docker smoke test
+
+Build and run:
+
+```powershell
+docker build -t tinycloud-azure .
+docker run --rm -p 4566:4566 -p 4577:4577 -p 4578:4578 -p 4579:4579 -p 4580:4580 -p 4581:4581 tinycloud-azure
+```
+
+Then verify:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4566/_admin/healthz
+Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/snapshot
+Invoke-RestMethod http://127.0.0.1:4566/metadata/endpoints
+```
+
+Persist state across runs with a bind mount or volume:
+
+```powershell
+docker run --rm -p 4566:4566 -v "${PWD}\data:/var/lib/tinycloud" tinycloud-azure
+```
+
+## Acceptance test matrix
+
+| Area | Environment | Check |
+| --- | --- | --- |
+| CLI init/status | local | `tinycloud init` and `tinycloud status` complete with a writable local `TINYCLOUD_DATA_ROOT` |
+| Snapshot default path | local | `tinycloud snapshot create` writes under the configured data root |
+| Admin health/metrics | local | `/_admin/healthz` and `/_admin/metrics` return `200` |
+| Metadata discovery | local | `/metadata/endpoints` returns the management URL |
+| Container boot | Docker | `docker run` starts `tinycloudd` successfully |
+| Container snapshot | Docker | `POST /_admin/snapshot` succeeds without an explicit `path` |
+| Persistent container data | Docker | mounted `/var/lib/tinycloud` survives restart |
+| Path restrictions | local or Docker | admin snapshot and seed reject paths outside the data root |
+
+## Current scope
+
+The current codebase is still in the foundation phase. ARM resource CRUD, async operations, identity/token endpoints, SQLite persistence, and a real data-plane service are planned but not implemented yet.
