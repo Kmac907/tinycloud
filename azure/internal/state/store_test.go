@@ -179,3 +179,51 @@ func TestListBootstrapEntities(t *testing.T) {
 		t.Fatalf("len(providers) = %d, want %d", len(providers), 1)
 	}
 }
+
+func TestResourceGroupCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	resourceGroup, err := store.UpsertResourceGroup("sub-123", "rg-test", "westus2", "owner", map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+	if resourceGroup.Type != "Microsoft.Resources/resourceGroups" {
+		t.Fatalf("Type = %q, want %q", resourceGroup.Type, "Microsoft.Resources/resourceGroups")
+	}
+
+	list, err := store.ListResourceGroups("sub-123")
+	if err != nil {
+		t.Fatalf("ListResourceGroups() error = %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("len(list) = %d, want %d", len(list), 1)
+	}
+
+	got, err := store.GetResourceGroup("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("GetResourceGroup() error = %v", err)
+	}
+	if got.ManagedBy != "owner" {
+		t.Fatalf("ManagedBy = %q, want %q", got.ManagedBy, "owner")
+	}
+
+	if err := store.DeleteResourceGroup("sub-123", "rg-test"); err != nil {
+		t.Fatalf("DeleteResourceGroup() error = %v", err)
+	}
+	list, err = store.ListResourceGroups("sub-123")
+	if err != nil {
+		t.Fatalf("ListResourceGroups() error = %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("len(list) = %d, want %d", len(list), 0)
+	}
+}
