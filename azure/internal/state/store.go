@@ -27,6 +27,7 @@ type Document struct {
 	BlobContainers  []BlobContainer          `json:"blobContainers,omitempty"`
 	Blobs           []BlobObject             `json:"blobs,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
+	Deployments     []Deployment             `json:"deployments,omitempty"`
 }
 
 type ResourceGroup struct {
@@ -96,6 +97,24 @@ type StorageAccount struct {
 	SKUName           string            `json:"skuName"`
 	Tags              map[string]string `json:"tags"`
 	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type Deployment struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Location          string            `json:"location"`
+	Mode              string            `json:"mode"`
+	TemplateJSON      string            `json:"templateJson"`
+	ParametersJSON    string            `json:"parametersJson"`
+	OutputsJSON       string            `json:"outputsJson"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	ErrorCode         string            `json:"errorCode"`
+	ErrorMessage      string            `json:"errorMessage"`
 	CreatedAt         string            `json:"createdAt"`
 	UpdatedAt         string            `json:"updatedAt"`
 }
@@ -242,6 +261,9 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
+	}
+	if doc.Deployments == nil {
+		doc.Deployments = []Deployment{}
 	}
 
 	db, err := s.openLocked()
@@ -998,6 +1020,123 @@ WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptio
 	return nil
 }
 
+func (s *Store) UpsertDeployment(subscriptionID, resourceGroupName, name, location, mode, templateJSON, parametersJSON, outputsJSON, provisioningState, errorCode, errorMessage string, tags map[string]string) (Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Deployment{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Deployment{}, err
+	}
+
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	if mode == "" {
+		mode = "Incremental"
+	}
+	if provisioningState == "" {
+		provisioningState = "Accepted"
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Resources/deployments/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM deployments WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return Deployment{}, fmt.Errorf("read existing deployment: %w", err)
+	}
+
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return Deployment{}, fmt.Errorf("marshal deployment tags: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO deployments (
+    id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    location = excluded.location,
+    mode = excluded.mode,
+    template_json = excluded.template_json,
+    parameters_json = excluded.parameters_json,
+    outputs_json = excluded.outputs_json,
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    error_code = excluded.error_code,
+    error_message = excluded.error_message,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, location, mode, templateJSON, parametersJSON, outputsJSON, string(tagsJSON), provisioningState, errorCode, errorMessage, createdAt, nowValue); err != nil {
+		return Deployment{}, fmt.Errorf("upsert deployment: %w", err)
+	}
+
+	return s.getDeploymentLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetDeployment(subscriptionID, resourceGroupName, name string) (Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Deployment{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Deployment{}, err
+	}
+
+	return s.getDeploymentLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) ListDeployments(subscriptionID, resourceGroupName string) ([]Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
+FROM deployments
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list deployments: %w", err)
+	}
+	defer rows.Close()
+
+	var deployments []Deployment
+	for rows.Next() {
+		deployment, err := scanDeployment(rows)
+		if err != nil {
+			return nil, err
+		}
+		deployments = append(deployments, deployment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deployments: %w", err)
+	}
+	return deployments, nil
+}
+
 func (s *Store) openLocked() (*sql.DB, error) {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
@@ -1053,6 +1192,23 @@ CREATE TABLE IF NOT EXISTS storage_accounts (
     sku_name TEXT NOT NULL,
     tags_json TEXT NOT NULL,
     provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deployments (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    template_json TEXT NOT NULL,
+    parameters_json TEXT NOT NULL,
+    outputs_json TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    error_code TEXT NOT NULL,
+    error_message TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -1210,6 +1366,26 @@ ORDER BY subscription_id, resource_group_name, name`)
 		return Document{}, fmt.Errorf("iterate storage accounts: %w", err)
 	}
 
+	deploymentRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
+FROM deployments
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read deployments: %w", err)
+	}
+	defer deploymentRows.Close()
+
+	for deploymentRows.Next() {
+		deployment, err := scanDeployment(deploymentRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.Deployments = append(doc.Deployments, deployment)
+	}
+	if err := deploymentRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate deployments: %w", err)
+	}
+
 	return doc, nil
 }
 
@@ -1258,6 +1434,9 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
+	if doc.Deployments == nil {
+		doc.Deployments = []Deployment{}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1283,6 +1462,10 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_accounts`); err != nil {
 		err = fmt.Errorf("clear storage accounts: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM deployments`); err != nil {
+		err = fmt.Errorf("clear deployments: %w", err)
 		return err
 	}
 	for id, rg := range doc.Resources {
@@ -1422,6 +1605,49 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, deployment := range doc.Deployments {
+		if deployment.Mode == "" {
+			deployment.Mode = "Incremental"
+		}
+		if deployment.Tags == nil {
+			deployment.Tags = map[string]string{}
+		}
+		if deployment.ProvisioningState == "" {
+			deployment.ProvisioningState = "Accepted"
+		}
+		if deployment.CreatedAt == "" {
+			deployment.CreatedAt = doc.UpdatedAt
+		}
+		if deployment.UpdatedAt == "" {
+			deployment.UpdatedAt = doc.UpdatedAt
+		}
+		tagsJSON, marshalErr := json.Marshal(deployment.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal deployment tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO deployments (id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			deployment.ID,
+			deployment.SubscriptionID,
+			deployment.ResourceGroupName,
+			deployment.Name,
+			deployment.Location,
+			deployment.Mode,
+			deployment.TemplateJSON,
+			deployment.ParametersJSON,
+			deployment.OutputsJSON,
+			string(tagsJSON),
+			deployment.ProvisioningState,
+			deployment.ErrorCode,
+			deployment.ErrorMessage,
+			deployment.CreatedAt,
+			deployment.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert deployment: %w", err)
+			return err
+		}
+	}
 
 	if _, err = tx.Exec(`
 INSERT INTO metadata (key, value) VALUES ('version', ?)
@@ -1451,6 +1677,7 @@ func newDocument() Document {
 		BlobContainers:  []BlobContainer{},
 		Blobs:           []BlobObject{},
 		StorageAccounts: []StorageAccount{},
+		Deployments:     []Deployment{},
 	}
 }
 
@@ -1529,6 +1756,47 @@ func scanStorageAccount(scanner interface {
 		account.Tags = map[string]string{}
 	}
 	return account, nil
+}
+
+func (s *Store) getDeploymentLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (Deployment, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
+FROM deployments
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanDeployment(row)
+}
+
+func scanDeployment(scanner interface {
+	Scan(dest ...any) error
+}) (Deployment, error) {
+	var deployment Deployment
+	var tagsJSON string
+	if err := scanner.Scan(
+		&deployment.ID,
+		&deployment.SubscriptionID,
+		&deployment.ResourceGroupName,
+		&deployment.Name,
+		&deployment.Location,
+		&deployment.Mode,
+		&deployment.TemplateJSON,
+		&deployment.ParametersJSON,
+		&deployment.OutputsJSON,
+		&tagsJSON,
+		&deployment.ProvisioningState,
+		&deployment.ErrorCode,
+		&deployment.ErrorMessage,
+		&deployment.CreatedAt,
+		&deployment.UpdatedAt,
+	); err != nil {
+		return Deployment{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &deployment.Tags); err != nil {
+		return Deployment{}, fmt.Errorf("parse deployment tags: %w", err)
+	}
+	if deployment.Tags == nil {
+		deployment.Tags = map[string]string{}
+	}
+	return deployment, nil
 }
 
 func parseResourceGroupID(id string) (string, string) {

@@ -438,3 +438,56 @@ func TestStorageAccountCRUD(t *testing.T) {
 		t.Fatalf("len(accounts) after delete = %d, want %d", len(accounts), 0)
 	}
 }
+
+func TestDeploymentCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	deployment, err := store.UpsertDeployment(
+		"sub-123",
+		"rg-test",
+		"deploy-one",
+		"westus2",
+		"Incremental",
+		`{"resources":[]}`,
+		`{"name":{"value":"tiny"}}`,
+		`{}`,
+		"Failed",
+		"DeploymentNotSupported",
+		"ARM deployment execution is not implemented yet",
+		map[string]string{"env": "test"},
+	)
+	if err != nil {
+		t.Fatalf("UpsertDeployment() error = %v", err)
+	}
+	if deployment.Name != "deploy-one" {
+		t.Fatalf("Name = %q, want %q", deployment.Name, "deploy-one")
+	}
+	if deployment.ProvisioningState != "Failed" {
+		t.Fatalf("ProvisioningState = %q, want %q", deployment.ProvisioningState, "Failed")
+	}
+
+	got, err := store.GetDeployment("sub-123", "rg-test", "deploy-one")
+	if err != nil {
+		t.Fatalf("GetDeployment() error = %v", err)
+	}
+	if got.ErrorCode != "DeploymentNotSupported" {
+		t.Fatalf("ErrorCode = %q, want %q", got.ErrorCode, "DeploymentNotSupported")
+	}
+
+	deployments, err := store.ListDeployments("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListDeployments() error = %v", err)
+	}
+	if len(deployments) != 1 {
+		t.Fatalf("len(deployments) = %d, want %d", len(deployments), 1)
+	}
+}
