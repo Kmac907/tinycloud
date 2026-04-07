@@ -7,16 +7,18 @@ import (
 	"fmt"
 	"net/http"
 
+	"tinycloud/internal/config"
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/state"
 )
 
 type Handler struct {
 	store *state.Store
+	cfg   config.Config
 }
 
-func NewHandler(store *state.Store) *Handler {
-	return &Handler{store: store}
+func NewHandler(store *state.Store, cfg config.Config) *Handler {
+	return &Handler{store: store, cfg: cfg}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -30,6 +32,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", h.putResourceGroup)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", h.getResourceGroup)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", h.deleteResourceGroup)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts", h.listStorageAccounts)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.putStorageAccount)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.getStorageAccount)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.deleteStorageAccount)
 }
 
 func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +226,133 @@ func (h *Handler) getOperation(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, body)
 }
 
+func (h *Handler) listStorageAccounts(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	accounts, err := h.store.ListStorageAccounts(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(accounts))
+	for _, account := range accounts {
+		value = append(value, h.storageAccountResponse(account))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putStorageAccount(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Location string            `json:"location"`
+		Kind     string            `json:"kind"`
+		Tags     map[string]string `json:"tags"`
+		SKU      struct {
+			Name string `json:"name"`
+		} `json:"sku"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Location == "" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingLocation", "storage account location is required")
+		return
+	}
+
+	account, err := h.store.UpsertStorageAccount(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("accountName"),
+		body.Location,
+		body.Kind,
+		body.SKU.Name,
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		account.ID,
+		"Microsoft.Storage/storageAccounts/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, h.storageAccountResponse(account))
+}
+
+func (h *Handler) getStorageAccount(w http.ResponseWriter, r *http.Request) {
+	account, err := h.store.GetStorageAccount(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("accountName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the storage account was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, h.storageAccountResponse(account))
+}
+
+func (h *Handler) deleteStorageAccount(w http.ResponseWriter, r *http.Request) {
+	account, err := h.store.GetStorageAccount(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("accountName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the storage account was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteStorageAccount(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("accountName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the storage account was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		account.ID,
+		"Microsoft.Storage/storageAccounts/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func resourceGroupResponse(resourceGroup state.ResourceGroup) map[string]any {
 	return map[string]any{
 		"id":        resourceGroup.ID,
@@ -238,6 +371,26 @@ func providerResponse(provider state.Provider) map[string]any {
 	return map[string]any{
 		"namespace":         provider.Namespace,
 		"registrationState": provider.RegistrationState,
+	}
+}
+
+func (h *Handler) storageAccountResponse(account state.StorageAccount) map[string]any {
+	return map[string]any{
+		"id":       account.ID,
+		"name":     account.Name,
+		"type":     "Microsoft.Storage/storageAccounts",
+		"location": account.Location,
+		"kind":     account.Kind,
+		"sku": map[string]string{
+			"name": account.SKUName,
+		},
+		"tags": account.Tags,
+		"properties": map[string]any{
+			"provisioningState": account.ProvisioningState,
+			"primaryEndpoints": map[string]string{
+				"blob": fmt.Sprintf("%s/%s", h.cfg.BlobURL(), account.Name),
+			},
+		},
 	}
 }
 

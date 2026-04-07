@@ -40,7 +40,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	authService := auth.NewService(s.cfg)
 	admin.NewHandler(s.store, s.cfg.DataRoot).Register(mux)
-	arm.NewHandler(s.store).Register(mux)
+	arm.NewHandler(s.store, s.cfg).Register(mux)
 	auth.NewHandler(authService).Register(mux)
 	identity.NewHandler(s.cfg, authService).Register(mux)
 	metadata.NewHandler(s.cfg).Register(mux)
