@@ -390,3 +390,51 @@ func TestSnapshotAndRestorePreserveBlobState(t *testing.T) {
 		t.Fatalf("Body = %q, want %q", string(blob.Body), "tinycloud")
 	}
 }
+
+func TestStorageAccountCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	account, err := store.UpsertStorageAccount("sub-123", "rg-test", "storagetest", "westus2", "StorageV2", "Standard_LRS", map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertStorageAccount() error = %v", err)
+	}
+	if account.Name != "storagetest" {
+		t.Fatalf("Name = %q, want %q", account.Name, "storagetest")
+	}
+
+	got, err := store.GetStorageAccount("sub-123", "rg-test", "storagetest")
+	if err != nil {
+		t.Fatalf("GetStorageAccount() error = %v", err)
+	}
+	if got.Location != "westus2" {
+		t.Fatalf("Location = %q, want %q", got.Location, "westus2")
+	}
+
+	accounts, err := store.ListStorageAccounts("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListStorageAccounts() error = %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("len(accounts) = %d, want %d", len(accounts), 1)
+	}
+
+	if err := store.DeleteStorageAccount("sub-123", "rg-test", "storagetest"); err != nil {
+		t.Fatalf("DeleteStorageAccount() error = %v", err)
+	}
+	accounts, err = store.ListStorageAccounts("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListStorageAccounts() after delete error = %v", err)
+	}
+	if len(accounts) != 0 {
+		t.Fatalf("len(accounts) after delete = %d, want %d", len(accounts), 0)
+	}
+}

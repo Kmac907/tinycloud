@@ -21,11 +21,12 @@ type Store struct {
 }
 
 type Document struct {
-	Version        string                   `json:"version"`
-	UpdatedAt      string                   `json:"updatedAt"`
-	Resources      map[string]ResourceGroup `json:"resources"`
-	BlobContainers []BlobContainer          `json:"blobContainers,omitempty"`
-	Blobs          []BlobObject             `json:"blobs,omitempty"`
+	Version         string                   `json:"version"`
+	UpdatedAt       string                   `json:"updatedAt"`
+	Resources       map[string]ResourceGroup `json:"resources"`
+	BlobContainers  []BlobContainer          `json:"blobContainers,omitempty"`
+	Blobs           []BlobObject             `json:"blobs,omitempty"`
+	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
 }
 
 type ResourceGroup struct {
@@ -83,6 +84,20 @@ type BlobObject struct {
 	ETag          string
 	CreatedAt     string
 	UpdatedAt     string
+}
+
+type StorageAccount struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Location          string            `json:"location"`
+	Kind              string            `json:"kind"`
+	SKUName           string            `json:"skuName"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
 }
 
 type Summary struct {
@@ -224,6 +239,9 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.Blobs == nil {
 		doc.Blobs = []BlobObject{}
+	}
+	if doc.StorageAccounts == nil {
+		doc.StorageAccounts = []StorageAccount{}
 	}
 
 	db, err := s.openLocked()
@@ -837,6 +855,149 @@ WHERE account_name = ? AND container_name = ? AND name = ?`, accountName, contai
 	return nil
 }
 
+func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return StorageAccount{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return StorageAccount{}, err
+	}
+
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	if kind == "" {
+		kind = "StorageV2"
+	}
+	if skuName == "" {
+		skuName = "Standard_LRS"
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM storage_accounts WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return StorageAccount{}, fmt.Errorf("read existing storage account: %w", err)
+	}
+
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return StorageAccount{}, fmt.Errorf("marshal storage account tags: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO storage_accounts (
+    id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    location = excluded.location,
+    kind = excluded.kind,
+    sku_name = excluded.sku_name,
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, location, kind, skuName, string(tagsJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return StorageAccount{}, fmt.Errorf("upsert storage account: %w", err)
+	}
+
+	return s.getStorageAccountLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetStorageAccount(subscriptionID, resourceGroupName, name string) (StorageAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return StorageAccount{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return StorageAccount{}, err
+	}
+
+	return s.getStorageAccountLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) ListStorageAccounts(subscriptionID, resourceGroupName string) ([]StorageAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM storage_accounts
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list storage accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []StorageAccount
+	for rows.Next() {
+		account, err := scanStorageAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate storage accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+func (s *Store) DeleteStorageAccount(subscriptionID, resourceGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM storage_accounts
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	if err != nil {
+		return fmt.Errorf("delete storage account: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete storage account rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) openLocked() (*sql.DB, error) {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
@@ -881,6 +1042,19 @@ CREATE TABLE IF NOT EXISTS blobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, container_name, name)
+);
+CREATE TABLE IF NOT EXISTS storage_accounts (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    sku_name TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,
@@ -1016,6 +1190,26 @@ ORDER BY account_name, container_name, name`)
 		return Document{}, fmt.Errorf("iterate blobs: %w", err)
 	}
 
+	storageAccountRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM storage_accounts
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read storage accounts: %w", err)
+	}
+	defer storageAccountRows.Close()
+
+	for storageAccountRows.Next() {
+		account, err := scanStorageAccount(storageAccountRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.StorageAccounts = append(doc.StorageAccounts, account)
+	}
+	if err := storageAccountRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate storage accounts: %w", err)
+	}
+
 	return doc, nil
 }
 
@@ -1061,6 +1255,9 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.Blobs == nil {
 		doc.Blobs = []BlobObject{}
 	}
+	if doc.StorageAccounts == nil {
+		doc.StorageAccounts = []StorageAccount{}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1082,6 +1279,10 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM blob_containers`); err != nil {
 		err = fmt.Errorf("clear blob containers: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM storage_accounts`); err != nil {
+		err = fmt.Errorf("clear storage accounts: %w", err)
 		return err
 	}
 	for id, rg := range doc.Resources {
@@ -1179,6 +1380,48 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, account := range doc.StorageAccounts {
+		if account.Kind == "" {
+			account.Kind = "StorageV2"
+		}
+		if account.SKUName == "" {
+			account.SKUName = "Standard_LRS"
+		}
+		if account.Tags == nil {
+			account.Tags = map[string]string{}
+		}
+		if account.ProvisioningState == "" {
+			account.ProvisioningState = "Succeeded"
+		}
+		if account.CreatedAt == "" {
+			account.CreatedAt = doc.UpdatedAt
+		}
+		if account.UpdatedAt == "" {
+			account.UpdatedAt = doc.UpdatedAt
+		}
+		tagsJSON, marshalErr := json.Marshal(account.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal storage account tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO storage_accounts (id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			account.ID,
+			account.SubscriptionID,
+			account.ResourceGroupName,
+			account.Name,
+			account.Location,
+			account.Kind,
+			account.SKUName,
+			string(tagsJSON),
+			account.ProvisioningState,
+			account.CreatedAt,
+			account.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert storage account: %w", err)
+			return err
+		}
+	}
 
 	if _, err = tx.Exec(`
 INSERT INTO metadata (key, value) VALUES ('version', ?)
@@ -1202,11 +1445,12 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, doc.UpdatedAt); err != n
 
 func newDocument() Document {
 	return Document{
-		Version:        "foundation-v1",
-		UpdatedAt:      now(),
-		Resources:      map[string]ResourceGroup{},
-		BlobContainers: []BlobContainer{},
-		Blobs:          []BlobObject{},
+		Version:         "foundation-v1",
+		UpdatedAt:       now(),
+		Resources:       map[string]ResourceGroup{},
+		BlobContainers:  []BlobContainer{},
+		Blobs:           []BlobObject{},
+		StorageAccounts: []StorageAccount{},
 	}
 }
 
@@ -1248,6 +1492,43 @@ func scanResourceGroup(scanner interface {
 	}
 	rg.Type = "Microsoft.Resources/resourceGroups"
 	return rg, nil
+}
+
+func (s *Store) getStorageAccountLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (StorageAccount, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM storage_accounts
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanStorageAccount(row)
+}
+
+func scanStorageAccount(scanner interface {
+	Scan(dest ...any) error
+}) (StorageAccount, error) {
+	var account StorageAccount
+	var tagsJSON string
+	if err := scanner.Scan(
+		&account.ID,
+		&account.SubscriptionID,
+		&account.ResourceGroupName,
+		&account.Name,
+		&account.Location,
+		&account.Kind,
+		&account.SKUName,
+		&tagsJSON,
+		&account.ProvisioningState,
+		&account.CreatedAt,
+		&account.UpdatedAt,
+	); err != nil {
+		return StorageAccount{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &account.Tags); err != nil {
+		return StorageAccount{}, fmt.Errorf("parse storage account tags: %w", err)
+	}
+	if account.Tags == nil {
+		account.Tags = map[string]string{}
+	}
+	return account, nil
 }
 
 func parseResourceGroupID(id string) (string, string) {
