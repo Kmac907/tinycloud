@@ -315,6 +315,41 @@ func TestListStorageAccountsRequiresExistingResourceGroup(t *testing.T) {
 	}
 }
 
+func TestDeploymentRoutesReturnExplicitUnsupportedError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments/deploy-one?api-version=2024-01-01", strings.NewReader(`{"properties":{"mode":"Incremental"}}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	}
+
+	var body httpx.CloudErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Error.Code != "DeploymentNotSupported" {
+		t.Fatalf("error.code = %q, want %q", body.Error.Code, "DeploymentNotSupported")
+	}
+}
+
 func TestGetResourceGroupReturnsNotFound(t *testing.T) {
 	t.Parallel()
 

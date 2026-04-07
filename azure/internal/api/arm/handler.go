@@ -36,6 +36,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.putStorageAccount)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.getStorageAccount)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.deleteStorageAccount)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments", h.listDeployments)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.putDeployment)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.getDeployment)
 }
 
 func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +354,30 @@ func (h *Handler) deleteStorageAccount(w http.ResponseWriter, r *http.Request) {
 
 	setAsyncHeaders(w, operation)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
+	h.writeDeploymentUnsupported(w, r)
+}
+
+func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
+	h.writeDeploymentUnsupported(w, r)
+}
+
+func (h *Handler) getDeployment(w http.ResponseWriter, r *http.Request) {
+	h.writeDeploymentUnsupported(w, r)
+}
+
+func (h *Handler) writeDeploymentUnsupported(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteCloudError(w, http.StatusNotImplemented, "DeploymentNotSupported", "ARM deployment execution is not implemented yet")
 }
 
 func resourceGroupResponse(resourceGroup state.ResourceGroup) map[string]any {
