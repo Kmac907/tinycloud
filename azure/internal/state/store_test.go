@@ -227,3 +227,29 @@ func TestResourceGroupCRUD(t *testing.T) {
 		t.Fatalf("len(list) = %d, want %d", len(list), 0)
 	}
 }
+
+func TestOperationsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	operation, err := store.CreateOperation("sub-123", "/subscriptions/sub-123/resourceGroups/rg-test", "Microsoft.Resources/resourceGroups/write", "Succeeded")
+	if err != nil {
+		t.Fatalf("CreateOperation() error = %v", err)
+	}
+
+	got, err := store.GetOperation("sub-123", operation.ID)
+	if err != nil {
+		t.Fatalf("GetOperation() error = %v", err)
+	}
+	if got.Status != "Succeeded" {
+		t.Fatalf("Status = %q, want %q", got.Status, "Succeeded")
+	}
+}

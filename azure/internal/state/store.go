@@ -53,6 +53,18 @@ type Provider struct {
 	RegistrationState string
 }
 
+type Operation struct {
+	ID             string
+	SubscriptionID string
+	ResourceID     string
+	Status         string
+	Operation      string
+	ErrorCode      string
+	ErrorMessage   string
+	CreatedAt      string
+	UpdatedAt      string
+}
+
 type Summary struct {
 	TenantCount       int
 	SubscriptionCount int
@@ -412,6 +424,77 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, now()); err != nil {
 	return nil
 }
 
+func (s *Store) CreateOperation(subscriptionID, resourceID, operation, status string) (Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Operation{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Operation{}, err
+	}
+
+	id := fmt.Sprintf("op-%d", time.Now().UTC().UnixNano())
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO operations (
+    id, subscription_id, resource_id, operation_name, status, error_code, error_message, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, '', '', ?, ?)`,
+		id, subscriptionID, resourceID, operation, status, nowValue, nowValue,
+	); err != nil {
+		return Operation{}, fmt.Errorf("create operation: %w", err)
+	}
+
+	return Operation{
+		ID:             id,
+		SubscriptionID: subscriptionID,
+		ResourceID:     resourceID,
+		Status:         status,
+		Operation:      operation,
+		CreatedAt:      nowValue,
+		UpdatedAt:      nowValue,
+	}, nil
+}
+
+func (s *Store) GetOperation(subscriptionID, operationID string) (Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Operation{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Operation{}, err
+	}
+
+	var operation Operation
+	err = db.QueryRow(`
+SELECT id, subscription_id, resource_id, operation_name, status, error_code, error_message, created_at, updated_at
+FROM operations
+WHERE subscription_id = ? AND id = ?`, subscriptionID, operationID).Scan(
+		&operation.ID,
+		&operation.SubscriptionID,
+		&operation.ResourceID,
+		&operation.Operation,
+		&operation.Status,
+		&operation.ErrorCode,
+		&operation.ErrorMessage,
+		&operation.CreatedAt,
+		&operation.UpdatedAt,
+	)
+	if err != nil {
+		return Operation{}, err
+	}
+	return operation, nil
+}
+
 func (s *Store) openLocked() (*sql.DB, error) {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return nil, fmt.Errorf("create state root: %w", err)
@@ -438,6 +521,17 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE TABLE IF NOT EXISTS providers (
     namespace TEXT PRIMARY KEY,
     registration_state TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS operations (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    operation_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS resource_groups (
     id TEXT PRIMARY KEY,
