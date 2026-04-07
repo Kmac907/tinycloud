@@ -315,7 +315,7 @@ func TestListStorageAccountsRequiresExistingResourceGroup(t *testing.T) {
 	}
 }
 
-func TestDeploymentRoutesReturnExplicitUnsupportedError(t *testing.T) {
+func TestDeploymentRoutesPersistFailedRecordAndOperation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -333,20 +333,66 @@ func TestDeploymentRoutesReturnExplicitUnsupportedError(t *testing.T) {
 	mux := http.NewServeMux()
 	NewHandler(store, config.FromEnv()).Register(mux)
 
-	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments/deploy-one?api-version=2024-01-01", strings.NewReader(`{"properties":{"mode":"Incremental"}}`))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	createReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments/deploy-one?api-version=2024-01-01", strings.NewReader(`{"location":"westus2","properties":{"mode":"Incremental","template":{"resources":[]},"parameters":{"name":{"value":"tiny"}}}}`))
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
 
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	if createRec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", createRec.Code, http.StatusAccepted)
+	}
+	if createRec.Header().Get("Azure-AsyncOperation") == "" {
+		t.Fatal("Azure-AsyncOperation header is empty")
 	}
 
-	var body httpx.CloudErrorResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	var createBody map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createBody); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if body.Error.Code != "DeploymentNotSupported" {
-		t.Fatalf("error.code = %q, want %q", body.Error.Code, "DeploymentNotSupported")
+	properties, _ := createBody["properties"].(map[string]any)
+	if properties["provisioningState"] != "Failed" {
+		t.Fatalf("provisioningState = %v, want %q", properties["provisioningState"], "Failed")
+	}
+	errorBody, _ := properties["error"].(map[string]any)
+	if errorBody["code"] != "DeploymentNotSupported" {
+		t.Fatalf("error.code = %v, want %q", errorBody["code"], "DeploymentNotSupported")
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments/deploy-one?api-version=2024-01-01", nil)
+	getRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", getRec.Code, http.StatusOK)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments?api-version=2024-01-01", nil)
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listRec.Code, http.StatusOK)
+	}
+	var listBody struct {
+		Value []map[string]any `json:"value"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("json.Unmarshal() list error = %v", err)
+	}
+	if len(listBody.Value) != 1 {
+		t.Fatalf("len(value) = %d, want %d", len(listBody.Value), 1)
+	}
+
+	operationPath := createRec.Header().Get("Azure-AsyncOperation")
+	opReq := httptest.NewRequest(http.MethodGet, operationPath+"?api-version=2024-01-01", nil)
+	opRec := httptest.NewRecorder()
+	mux.ServeHTTP(opRec, opReq)
+	if opRec.Code != http.StatusOK {
+		t.Fatalf("operation status = %d, want %d", opRec.Code, http.StatusOK)
+	}
+	var opBody map[string]any
+	if err := json.Unmarshal(opRec.Body.Bytes(), &opBody); err != nil {
+		t.Fatalf("json.Unmarshal() operation error = %v", err)
+	}
+	if opBody["status"] != "Failed" {
+		t.Fatalf("operation status = %v, want %q", opBody["status"], "Failed")
 	}
 }
 

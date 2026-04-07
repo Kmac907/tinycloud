@@ -548,6 +548,10 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, now()); err != nil {
 }
 
 func (s *Store) CreateOperation(subscriptionID, resourceID, operation, status string) (Operation, error) {
+	return s.CreateOperationResult(subscriptionID, resourceID, operation, status, "", "")
+}
+
+func (s *Store) CreateOperationResult(subscriptionID, resourceID, operation, status, errorCode, errorMessage string) (Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -566,8 +570,8 @@ func (s *Store) CreateOperation(subscriptionID, resourceID, operation, status st
 	if _, err := db.Exec(`
 INSERT INTO operations (
     id, subscription_id, resource_id, operation_name, status, error_code, error_message, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, '', '', ?, ?)`,
-		id, subscriptionID, resourceID, operation, status, nowValue, nowValue,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, subscriptionID, resourceID, operation, status, errorCode, errorMessage, nowValue, nowValue,
 	); err != nil {
 		return Operation{}, fmt.Errorf("create operation: %w", err)
 	}
@@ -578,6 +582,8 @@ INSERT INTO operations (
 		ResourceID:     resourceID,
 		Status:         status,
 		Operation:      operation,
+		ErrorCode:      errorCode,
+		ErrorMessage:   errorMessage,
 		CreatedAt:      nowValue,
 		UpdatedAt:      nowValue,
 	}, nil

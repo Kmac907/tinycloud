@@ -357,18 +357,6 @@ func (h *Handler) deleteStorageAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
-	h.writeDeploymentUnsupported(w, r)
-}
-
-func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
-	h.writeDeploymentUnsupported(w, r)
-}
-
-func (h *Handler) getDeployment(w http.ResponseWriter, r *http.Request) {
-	h.writeDeploymentUnsupported(w, r)
-}
-
-func (h *Handler) writeDeploymentUnsupported(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
 		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
 		return
@@ -377,7 +365,91 @@ func (h *Handler) writeDeploymentUnsupported(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	httpx.WriteCloudError(w, http.StatusNotImplemented, "DeploymentNotSupported", "ARM deployment execution is not implemented yet")
+	deployments, err := h.store.ListDeployments(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(deployments))
+	for _, deployment := range deployments {
+		value = append(value, deploymentResponse(deployment))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Location   string            `json:"location"`
+		Tags       map[string]string `json:"tags"`
+		Properties struct {
+			Mode       string          `json:"mode"`
+			Template   json.RawMessage `json:"template"`
+			Parameters json.RawMessage `json:"parameters"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+
+	deployment, err := h.store.UpsertDeployment(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("deploymentName"),
+		body.Location,
+		body.Properties.Mode,
+		string(body.Properties.Template),
+		string(body.Properties.Parameters),
+		`{}`,
+		"Failed",
+		"DeploymentNotSupported",
+		"ARM deployment execution is not implemented yet",
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperationResult(
+		r.PathValue("subscriptionId"),
+		deployment.ID,
+		"Microsoft.Resources/deployments/write",
+		"Failed",
+		deployment.ErrorCode,
+		deployment.ErrorMessage,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, deploymentResponse(deployment))
+}
+
+func (h *Handler) getDeployment(w http.ResponseWriter, r *http.Request) {
+	deployment, err := h.store.GetDeployment(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("deploymentName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "DeploymentNotFound", "the deployment was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, deploymentResponse(deployment))
 }
 
 func resourceGroupResponse(resourceGroup state.ResourceGroup) map[string]any {
@@ -418,6 +490,34 @@ func (h *Handler) storageAccountResponse(account state.StorageAccount) map[strin
 				"blob": fmt.Sprintf("%s/%s", h.cfg.BlobURL(), account.Name),
 			},
 		},
+	}
+}
+
+func deploymentResponse(deployment state.Deployment) map[string]any {
+	properties := map[string]any{
+		"mode":              deployment.Mode,
+		"provisioningState": deployment.ProvisioningState,
+	}
+	if deployment.OutputsJSON != "" && deployment.OutputsJSON != "{}" {
+		var outputs any
+		if err := json.Unmarshal([]byte(deployment.OutputsJSON), &outputs); err == nil {
+			properties["outputs"] = outputs
+		}
+	}
+	if deployment.ErrorCode != "" || deployment.ErrorMessage != "" {
+		properties["error"] = map[string]string{
+			"code":    deployment.ErrorCode,
+			"message": deployment.ErrorMessage,
+		}
+	}
+
+	return map[string]any{
+		"id":         deployment.ID,
+		"name":       deployment.Name,
+		"type":       "Microsoft.Resources/deployments",
+		"location":   deployment.Location,
+		"tags":       deployment.Tags,
+		"properties": properties,
 	}
 }
 
