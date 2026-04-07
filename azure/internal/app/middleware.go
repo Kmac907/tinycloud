@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"tinycloud/internal/core/apiversion"
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/telemetry"
 )
@@ -98,8 +99,14 @@ func withAPIVersion(next http.Handler) http.Handler {
 			return
 		}
 
-		if strings.TrimSpace(r.URL.Query().Get("api-version")) == "" {
-			httpx.WriteCloudError(w, http.StatusBadRequest, "MissingApiVersionParameter", "the api-version query parameter is required")
+		if _, err := apiversion.Parse(r.URL.Query().Get("api-version")); err != nil {
+			code := "InvalidApiVersionParameter"
+			message := "the api-version query parameter is invalid"
+			if err == apiversion.ErrMissing {
+				code = "MissingApiVersionParameter"
+				message = "the api-version query parameter is required"
+			}
+			httpx.WriteCloudError(w, http.StatusBadRequest, code, message)
 			return
 		}
 

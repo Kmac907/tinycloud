@@ -81,6 +81,30 @@ func TestAPIVersionMiddlewareRejectsARMRequestsWithoutVersion(t *testing.T) {
 	}
 }
 
+func TestAPIVersionMiddlewareRejectsInvalidVersion(t *testing.T) {
+	t.Parallel()
+
+	handler := chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}), withAPIVersion)
+
+	req := httptest.NewRequest(http.MethodGet, "/subscriptions/test/resourcegroups?api-version=v1", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var body httpx.CloudErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Error.Code != "InvalidApiVersionParameter" {
+		t.Fatalf("error.code = %q, want %q", body.Error.Code, "InvalidApiVersionParameter")
+	}
+}
+
 func TestAPIVersionMiddlewareSkipsAdminRoutes(t *testing.T) {
 	t.Parallel()
 
