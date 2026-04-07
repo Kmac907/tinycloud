@@ -349,3 +349,44 @@ func TestBlobContainerAndBlobRoundTrip(t *testing.T) {
 		t.Fatalf("len(blobs) after delete = %d, want %d", len(blobs), 0)
 	}
 }
+
+func TestSnapshotAndRestorePreserveBlobState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateBlobContainer("devstoreaccount1", "images"); err != nil {
+		t.Fatalf("CreateBlobContainer() error = %v", err)
+	}
+	if _, err := store.PutBlob("devstoreaccount1", "images", "logo.txt", "text/plain", []byte("tinycloud")); err != nil {
+		t.Fatalf("PutBlob() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "blob.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	blob, err := restoreStore.GetBlob("devstoreaccount1", "images", "logo.txt")
+	if err != nil {
+		t.Fatalf("GetBlob() error = %v", err)
+	}
+	if string(blob.Body) != "tinycloud" {
+		t.Fatalf("Body = %q, want %q", string(blob.Body), "tinycloud")
+	}
+}

@@ -21,9 +21,11 @@ type Store struct {
 }
 
 type Document struct {
-	Version   string                   `json:"version"`
-	UpdatedAt string                   `json:"updatedAt"`
-	Resources map[string]ResourceGroup `json:"resources"`
+	Version        string                   `json:"version"`
+	UpdatedAt      string                   `json:"updatedAt"`
+	Resources      map[string]ResourceGroup `json:"resources"`
+	BlobContainers []BlobContainer          `json:"blobContainers,omitempty"`
+	Blobs          []BlobObject             `json:"blobs,omitempty"`
 }
 
 type ResourceGroup struct {
@@ -216,6 +218,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.Resources == nil {
 		doc.Resources = map[string]ResourceGroup{}
+	}
+	if doc.BlobContainers == nil {
+		doc.BlobContainers = []BlobContainer{}
+	}
+	if doc.Blobs == nil {
+		doc.Blobs = []BlobObject{}
 	}
 
 	db, err := s.openLocked()
@@ -959,6 +967,55 @@ func (s *Store) readLocked(db *sql.DB) (Document, error) {
 		return Document{}, fmt.Errorf("iterate resource groups: %w", err)
 	}
 
+	containerRows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM blob_containers
+ORDER BY account_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read blob containers: %w", err)
+	}
+	defer containerRows.Close()
+
+	for containerRows.Next() {
+		var container BlobContainer
+		if err := containerRows.Scan(&container.AccountName, &container.Name, &container.CreatedAt, &container.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan blob container: %w", err)
+		}
+		doc.BlobContainers = append(doc.BlobContainers, container)
+	}
+	if err := containerRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate blob containers: %w", err)
+	}
+
+	blobRows, err := db.Query(`
+SELECT account_name, container_name, name, content_type, body, etag, created_at, updated_at
+FROM blobs
+ORDER BY account_name, container_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read blobs: %w", err)
+	}
+	defer blobRows.Close()
+
+	for blobRows.Next() {
+		var blob BlobObject
+		if err := blobRows.Scan(
+			&blob.AccountName,
+			&blob.ContainerName,
+			&blob.Name,
+			&blob.ContentType,
+			&blob.Body,
+			&blob.ETag,
+			&blob.CreatedAt,
+			&blob.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan blob: %w", err)
+		}
+		doc.Blobs = append(doc.Blobs, blob)
+	}
+	if err := blobRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate blobs: %w", err)
+	}
+
 	return doc, nil
 }
 
@@ -998,6 +1055,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.Resources == nil {
 		doc.Resources = map[string]ResourceGroup{}
 	}
+	if doc.BlobContainers == nil {
+		doc.BlobContainers = []BlobContainer{}
+	}
+	if doc.Blobs == nil {
+		doc.Blobs = []BlobObject{}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -1011,6 +1074,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 
 	if _, err = tx.Exec(`DELETE FROM resource_groups`); err != nil {
 		err = fmt.Errorf("clear resource groups: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM blobs`); err != nil {
+		err = fmt.Errorf("clear blobs: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM blob_containers`); err != nil {
+		err = fmt.Errorf("clear blob containers: %w", err)
 		return err
 	}
 	for id, rg := range doc.Resources {
@@ -1062,6 +1133,52 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, container := range doc.BlobContainers {
+		if container.CreatedAt == "" {
+			container.CreatedAt = doc.UpdatedAt
+		}
+		if container.UpdatedAt == "" {
+			container.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO blob_containers (account_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			container.AccountName,
+			container.Name,
+			container.CreatedAt,
+			container.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert blob container: %w", err)
+			return err
+		}
+	}
+	for _, blob := range doc.Blobs {
+		if blob.ContentType == "" {
+			blob.ContentType = "application/octet-stream"
+		}
+		if blob.ETag == "" {
+			blob.ETag = fmt.Sprintf("\"%d\"", time.Now().UTC().UnixNano())
+		}
+		if blob.CreatedAt == "" {
+			blob.CreatedAt = doc.UpdatedAt
+		}
+		if blob.UpdatedAt == "" {
+			blob.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO blobs (account_name, container_name, name, content_type, body, etag, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			blob.AccountName,
+			blob.ContainerName,
+			blob.Name,
+			blob.ContentType,
+			blob.Body,
+			blob.ETag,
+			blob.CreatedAt,
+			blob.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert blob: %w", err)
+			return err
+		}
+	}
 
 	if _, err = tx.Exec(`
 INSERT INTO metadata (key, value) VALUES ('version', ?)
@@ -1085,9 +1202,11 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, doc.UpdatedAt); err != n
 
 func newDocument() Document {
 	return Document{
-		Version:   "foundation-v1",
-		UpdatedAt: now(),
-		Resources: map[string]ResourceGroup{},
+		Version:        "foundation-v1",
+		UpdatedAt:      now(),
+		Resources:      map[string]ResourceGroup{},
+		BlobContainers: []BlobContainer{},
+		Blobs:          []BlobObject{},
 	}
 }
 
