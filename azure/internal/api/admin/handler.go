@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -9,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"tinycloud/internal/httpx"
 	"tinycloud/internal/state"
 )
 
@@ -30,7 +30,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"time":   time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -39,11 +39,11 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) metrics(w http.ResponseWriter, _ *http.Request) {
 	summary, err := h.store.Summary()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"resourceCount": summary.ResourceCount,
 		"updatedAt":     summary.UpdatedAt,
 		"statePath":     summary.StatePath,
@@ -52,41 +52,41 @@ func (h *Handler) metrics(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) reset(w http.ResponseWriter, _ *http.Request) {
 	if err := h.store.Reset(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "reset"})
 }
 
 func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
 	path, err := h.resolveDataPath(r.URL.Query().Get("path"), "tinycloud.snapshot.json")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if err := h.store.Snapshot(path); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"snapshot": path})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"snapshot": path})
 }
 
 func (h *Handler) seed(w http.ResponseWriter, r *http.Request) {
 	queryPath := r.URL.Query().Get("path")
 	if queryPath == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing path query parameter"})
+		httpx.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "missing path query parameter"})
 		return
 	}
 	path, err := h.resolveDataPath(queryPath, "")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if err := h.store.ApplySeed(path); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		httpx.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"seed": path})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"seed": path})
 }
 
 func (h *Handler) resolveDataPath(queryPath, fallback string) (string, error) {
@@ -121,10 +121,4 @@ func (h *Handler) resolveDataPath(queryPath, fallback string) (string, error) {
 	}
 
 	return target, nil
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }

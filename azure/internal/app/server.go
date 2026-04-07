@@ -8,6 +8,7 @@ import (
 
 	"tinycloud/internal/api/admin"
 	"tinycloud/internal/config"
+	"tinycloud/internal/httpx"
 	"tinycloud/internal/metadata"
 	"tinycloud/internal/state"
 	"tinycloud/internal/telemetry"
@@ -36,11 +37,21 @@ func (s *Server) Run(ctx context.Context) error {
 	admin.NewHandler(s.store, s.cfg.DataRoot).Register(mux)
 	metadata.NewHandler(s.cfg).Register(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"TinyCloud","status":"running"}`))
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{
+			"name":   "TinyCloud",
+			"status": "running",
+		})
 	})
 
-	handler := withLogging(s.logger, mux)
+	handler := chain(
+		mux,
+		withRequestID,
+		withLogging(s.logger),
+		withRecovery(s.logger),
+		withCORS,
+		withAzureHeaders,
+		withAPIVersion,
+	)
 	server := &http.Server{
 		Addr:              s.cfg.ManagementAddr(),
 		Handler:           handler,
@@ -69,17 +80,4 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		return err
 	}
-}
-
-func withLogging(logger *telemetry.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Info("http request", map[string]any{
-			"method":   r.Method,
-			"path":     r.URL.Path,
-			"remoteIP": r.RemoteAddr,
-			"duration": time.Since(start).String(),
-		})
-	})
 }

@@ -1,10 +1,10 @@
 package metadata
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"tinycloud/internal/config"
+	"tinycloud/internal/httpx"
 )
 
 type Handler struct {
@@ -20,14 +20,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"name":       "TinyCloud",
 		"management": h.cfg.ManagementHTTPURL(),
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }
