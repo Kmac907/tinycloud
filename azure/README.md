@@ -9,6 +9,7 @@ TinyCloud is a local Azure-compatible emulator written in Go and packaged as a s
 - async operation polling for ARM resource-group writes and deletes
 - metadata discovery at `/metadata/endpoints`
 - identity endpoints at `/metadata/identity`, `/metadata/identity/oauth2/token`, and `/oauth/token`
+- Blob data-plane on port `4577`
 - Docker image with non-root runtime and persistent data root at `/var/lib/tinycloud`
 
 ## Local smoke test
@@ -32,6 +33,8 @@ Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/snapshot
 Invoke-RestMethod http://127.0.0.1:4566/metadata/endpoints
 Invoke-RestMethod http://127.0.0.1:4566/metadata/identity
 Invoke-RestMethod -Method Post http://127.0.0.1:4566/oauth/token -Body "resource=https://management.azure.com/" -ContentType "application/x-www-form-urlencoded"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local?api-version=2024-01-01" -Body '{"location":"westus2"}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Storage/storageAccounts/storelocal?api-version=2024-01-01" -Body '{"location":"westus2","sku":{"name":"Standard_LRS"}}' -ContentType "application/json"
 ```
 
 ## Docker smoke test
@@ -67,6 +70,7 @@ docker run --rm -p 4566:4566 -v "${PWD}\data:/var/lib/tinycloud" tinycloud-azure
 | Admin health/metrics | local | `/_admin/healthz` and `/_admin/metrics` return `200` |
 | Metadata discovery | local | `/metadata/endpoints` returns ARM, auth, and service URLs |
 | Identity endpoints | local | `/metadata/identity` and `/oauth/token` return stable local auth metadata |
+| Blob data-plane | local or Docker | create a storage account, then create/list/upload/download blobs on port `4577` |
 | Container boot | Docker | `docker run` starts `tinycloudd` successfully |
 | Container snapshot | Docker | `POST /_admin/snapshot` succeeds without an explicit `path` |
 | Persistent container data | Docker | mounted `/var/lib/tinycloud` survives restart |
@@ -74,4 +78,9 @@ docker run --rm -p 4566:4566 -v "${PWD}\data:/var/lib/tinycloud" tinycloud-azure
 
 ## Current scope
 
-The current codebase now covers the core local runtime, SQLite persistence, ARM subscription/provider/resource-group flows, async polling for resource-group operations, and minimal identity/token endpoints. A real data-plane service, deployment records, and compatibility examples are still outstanding.
+The current codebase now covers the core local runtime, SQLite persistence, ARM subscription/provider/resource-group/storage-account flows, async polling, minimal identity/token endpoints, and a real Blob data-plane service. Deployment records and deeper compatibility polish are still outstanding.
+
+## Examples
+
+- Terraform resource group example: `examples/terraform/resource-group`
+- Pulumi environment notes: `examples/pulumi`
