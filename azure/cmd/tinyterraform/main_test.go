@@ -115,3 +115,39 @@ func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestTerraformSubcommandSkipsFlags(t *testing.T) {
+	t.Parallel()
+
+	value := terraformSubcommand([]string{"-chdir=examples", "apply", "-auto-approve"})
+	if value != "apply" {
+		t.Fatalf("terraformSubcommand() = %q, want %q", value, "apply")
+	}
+}
+
+func TestNormalizeTerraformArgsDropsGoRunSeparator(t *testing.T) {
+	t.Parallel()
+
+	args := normalizeTerraformArgs([]string{"--", "version", "-json"})
+	expected := []string{"version", "-json"}
+
+	if len(args) != len(expected) {
+		t.Fatalf("len(args) = %d, want %d", len(args), len(expected))
+	}
+	for i, value := range expected {
+		if args[i] != value {
+			t.Fatalf("args[%d] = %q, want %q", i, args[i], value)
+		}
+	}
+}
+
+func TestRequiresTinyCloudRuntime(t *testing.T) {
+	t.Parallel()
+
+	if requiresTinyCloudRuntime("version") {
+		t.Fatal("requiresTinyCloudRuntime(version) = true, want false")
+	}
+	if !requiresTinyCloudRuntime("apply") {
+		t.Fatal("requiresTinyCloudRuntime(apply) = false, want true")
+	}
+}
