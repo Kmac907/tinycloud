@@ -15,6 +15,7 @@ import (
 	"tinycloud/internal/metadata"
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
+	"tinycloud/internal/providers/servicebus"
 	"tinycloud/internal/providers/storage"
 	"tinycloud/internal/providers/table"
 	"tinycloud/internal/state"
@@ -93,6 +94,14 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	serviceBusMux := http.NewServeMux()
+	servicebus.NewHandler(s.store, s.cfg).Register(serviceBusMux)
+	serviceBusServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
+		Handler:           chain(serviceBusMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	keyVaultMux := http.NewServeMux()
 	keyvault.NewHandler(s.store, s.cfg).Register(keyVaultMux)
 	keyVaultServer := &http.Server{
@@ -106,11 +115,12 @@ func (s *Server) Run(ctx context.Context) error {
 		"blobAddr":     s.cfg.ListenHost + ":" + s.cfg.Blob,
 		"queueAddr":    s.cfg.ListenHost + ":" + s.cfg.Queue,
 		"tableAddr":    s.cfg.ListenHost + ":" + s.cfg.Table,
+		"serviceBusAddr": s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
 		"keyVaultAddr": s.cfg.ListenHost + ":" + s.cfg.KeyVault,
 		"dataRoot":     s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 5)
+	errCh := make(chan error, 6)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -122,6 +132,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	go func() {
 		errCh <- tableServer.ListenAndServe()
+	}()
+	go func() {
+		errCh <- serviceBusServer.ListenAndServe()
 	}()
 	go func() {
 		errCh <- keyVaultServer.ListenAndServe()
@@ -141,6 +154,9 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := tableServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+		if err := serviceBusServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 		if err := blobServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -151,6 +167,7 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = queueServer.Shutdown(shutdownCtx)
 		_ = tableServer.Shutdown(shutdownCtx)
+		_ = serviceBusServer.Shutdown(shutdownCtx)
 		_ = blobServer.Shutdown(shutdownCtx)
 		_ = server.Shutdown(shutdownCtx)
 		if errors.Is(err, http.ErrServerClosed) {
