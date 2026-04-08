@@ -36,6 +36,8 @@ type Document struct {
 	ServiceBusTopics               []ServiceBusTopic               `json:"serviceBusTopics,omitempty"`
 	ServiceBusSubscriptions        []ServiceBusSubscription        `json:"serviceBusSubscriptions,omitempty"`
 	ServiceBusSubscriptionMessages []ServiceBusSubscriptionMessage `json:"serviceBusSubscriptionMessages,omitempty"`
+	AppConfigStores                []AppConfigStore                `json:"appConfigStores,omitempty"`
+	AppConfigValues                []AppConfigValue                `json:"appConfigValues,omitempty"`
 	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
 	KeyVaults                      []KeyVault                      `json:"keyVaults,omitempty"`
 	KeyVaultSecrets                []KeyVaultSecret                `json:"keyVaultSecrets,omitempty"`
@@ -186,6 +188,22 @@ type ServiceBusSubscriptionMessage struct {
 	VisibleAt        string `json:"visibleAt"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
+}
+
+type AppConfigStore struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type AppConfigValue struct {
+	StoreName   string `json:"storeName"`
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Value       string `json:"value"`
+	ContentType string `json:"contentType,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -412,6 +430,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.ServiceBusSubscriptionMessages == nil {
 		doc.ServiceBusSubscriptionMessages = []ServiceBusSubscriptionMessage{}
+	}
+	if doc.AppConfigStores == nil {
+		doc.AppConfigStores = []AppConfigStore{}
+	}
+	if doc.AppConfigValues == nil {
+		doc.AppConfigValues = []AppConfigValue{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -2370,6 +2394,251 @@ WHERE namespace_name = ? AND topic_name = ? AND subscription_name = ? AND id = ?
 	return nil
 }
 
+func (s *Store) CreateAppConfigStore(name string) (AppConfigStore, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return AppConfigStore{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return AppConfigStore{}, false, err
+	}
+
+	var existing AppConfigStore
+	err = db.QueryRow(`
+SELECT name, created_at, updated_at
+FROM app_config_stores
+WHERE name = ?`, name).Scan(&existing.Name, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return AppConfigStore{}, false, fmt.Errorf("read app config store: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO app_config_stores (name, created_at, updated_at)
+VALUES (?, ?, ?)`, name, nowValue, nowValue); err != nil {
+		return AppConfigStore{}, false, fmt.Errorf("create app config store: %w", err)
+	}
+
+	return AppConfigStore{Name: name, CreatedAt: nowValue, UpdatedAt: nowValue}, true, nil
+}
+
+func (s *Store) ListAppConfigStores() ([]AppConfigStore, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM app_config_stores
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list app config stores: %w", err)
+	}
+	defer rows.Close()
+
+	var stores []AppConfigStore
+	for rows.Next() {
+		var store AppConfigStore
+		if err := rows.Scan(&store.Name, &store.CreatedAt, &store.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan app config store: %w", err)
+		}
+		stores = append(stores, store)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate app config stores: %w", err)
+	}
+	return stores, nil
+}
+
+func (s *Store) PutAppConfigValue(storeName, key, label, value, contentType string) (AppConfigValue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return AppConfigValue{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return AppConfigValue{}, err
+	}
+
+	var storeExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM app_config_stores WHERE name = ?
+)`, storeName).Scan(&storeExists); err != nil {
+		return AppConfigValue{}, fmt.Errorf("query app config store: %w", err)
+	}
+	if !storeExists {
+		return AppConfigValue{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	var createdAt string
+	err = db.QueryRow(`
+SELECT created_at
+FROM app_config_values
+WHERE store_name = ? AND key_name = ? AND label = ?`, storeName, key, label).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return AppConfigValue{}, fmt.Errorf("read app config value: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO app_config_values (store_name, key_name, label, value, content_type, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(store_name, key_name, label) DO UPDATE SET
+    value = excluded.value,
+    content_type = excluded.content_type,
+    updated_at = excluded.updated_at`,
+		storeName, key, label, value, contentType, createdAt, nowValue,
+	); err != nil {
+		return AppConfigValue{}, fmt.Errorf("put app config value: %w", err)
+	}
+
+	return AppConfigValue{
+		StoreName:   storeName,
+		Key:         key,
+		Label:       label,
+		Value:       value,
+		ContentType: contentType,
+		CreatedAt:   createdAt,
+		UpdatedAt:   nowValue,
+	}, nil
+}
+
+func (s *Store) GetAppConfigValue(storeName, key, label string) (AppConfigValue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return AppConfigValue{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return AppConfigValue{}, err
+	}
+
+	var value AppConfigValue
+	err = db.QueryRow(`
+SELECT store_name, key_name, label, value, content_type, created_at, updated_at
+FROM app_config_values
+WHERE store_name = ? AND key_name = ? AND label = ?`, storeName, key, label).Scan(
+		&value.StoreName,
+		&value.Key,
+		&value.Label,
+		&value.Value,
+		&value.ContentType,
+		&value.CreatedAt,
+		&value.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AppConfigValue{}, sql.ErrNoRows
+		}
+		return AppConfigValue{}, fmt.Errorf("get app config value: %w", err)
+	}
+	return value, nil
+}
+
+func (s *Store) ListAppConfigValues(storeName string) ([]AppConfigValue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT store_name, key_name, label, value, content_type, created_at, updated_at
+FROM app_config_values
+WHERE store_name = ?
+ORDER BY key_name, label`, storeName)
+	if err != nil {
+		return nil, fmt.Errorf("list app config values: %w", err)
+	}
+	defer rows.Close()
+
+	var values []AppConfigValue
+	for rows.Next() {
+		var value AppConfigValue
+		if err := rows.Scan(
+			&value.StoreName,
+			&value.Key,
+			&value.Label,
+			&value.Value,
+			&value.ContentType,
+			&value.CreatedAt,
+			&value.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan app config value: %w", err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate app config values: %w", err)
+	}
+	return values, nil
+}
+
+func (s *Store) DeleteAppConfigValue(storeName, key, label string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM app_config_values
+WHERE store_name = ? AND key_name = ? AND label = ?`, storeName, key, label)
+	if err != nil {
+		return fmt.Errorf("delete app config value: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete app config value rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3121,6 +3390,21 @@ CREATE TABLE IF NOT EXISTS service_bus_subscription_messages (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (namespace_name, topic_name, subscription_name, id)
 );
+CREATE TABLE IF NOT EXISTS app_config_stores (
+    name TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_config_values (
+    store_name TEXT NOT NULL,
+    key_name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    value TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (store_name, key_name, label)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -3538,6 +3822,54 @@ ORDER BY namespace_name, topic_name, subscription_name, created_at`)
 		return Document{}, fmt.Errorf("iterate service bus subscription messages: %w", err)
 	}
 
+	appConfigStoreRows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM app_config_stores
+ORDER BY name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read app config stores: %w", err)
+	}
+	defer appConfigStoreRows.Close()
+
+	for appConfigStoreRows.Next() {
+		var store AppConfigStore
+		if err := appConfigStoreRows.Scan(&store.Name, &store.CreatedAt, &store.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan app config store: %w", err)
+		}
+		doc.AppConfigStores = append(doc.AppConfigStores, store)
+	}
+	if err := appConfigStoreRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate app config stores: %w", err)
+	}
+
+	appConfigValueRows, err := db.Query(`
+SELECT store_name, key_name, label, value, content_type, created_at, updated_at
+FROM app_config_values
+ORDER BY store_name, key_name, label`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read app config values: %w", err)
+	}
+	defer appConfigValueRows.Close()
+
+	for appConfigValueRows.Next() {
+		var value AppConfigValue
+		if err := appConfigValueRows.Scan(
+			&value.StoreName,
+			&value.Key,
+			&value.Label,
+			&value.Value,
+			&value.ContentType,
+			&value.CreatedAt,
+			&value.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan app config value: %w", err)
+		}
+		doc.AppConfigValues = append(doc.AppConfigValues, value)
+	}
+	if err := appConfigValueRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate app config values: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -3691,6 +4023,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.ServiceBusMessages == nil {
 		doc.ServiceBusMessages = []ServiceBusMessage{}
 	}
+	if doc.AppConfigStores == nil {
+		doc.AppConfigStores = []AppConfigStore{}
+	}
+	if doc.AppConfigValues == nil {
+		doc.AppConfigValues = []AppConfigValue{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -3736,6 +4074,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_subscription_messages`); err != nil {
 		err = fmt.Errorf("clear service bus subscription messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM app_config_values`); err != nil {
+		err = fmt.Errorf("clear app config values: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM app_config_stores`); err != nil {
+		err = fmt.Errorf("clear app config stores: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_subscriptions`); err != nil {
@@ -4102,6 +4448,44 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, store := range doc.AppConfigStores {
+		if store.CreatedAt == "" {
+			store.CreatedAt = doc.UpdatedAt
+		}
+		if store.UpdatedAt == "" {
+			store.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO app_config_stores (name, created_at, updated_at) VALUES (?, ?, ?)`,
+			store.Name,
+			store.CreatedAt,
+			store.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert app config store: %w", err)
+			return err
+		}
+	}
+	for _, value := range doc.AppConfigValues {
+		if value.CreatedAt == "" {
+			value.CreatedAt = doc.UpdatedAt
+		}
+		if value.UpdatedAt == "" {
+			value.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO app_config_values (store_name, key_name, label, value, content_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			value.StoreName,
+			value.Key,
+			value.Label,
+			value.Value,
+			value.ContentType,
+			value.CreatedAt,
+			value.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert app config value: %w", err)
+			return err
+		}
+	}
 	for _, account := range doc.StorageAccounts {
 		if account.Kind == "" {
 			account.Kind = "StorageV2"
@@ -4287,6 +4671,8 @@ func newDocument() Document {
 		ServiceBusTopics:               []ServiceBusTopic{},
 		ServiceBusSubscriptions:        []ServiceBusSubscription{},
 		ServiceBusSubscriptionMessages: []ServiceBusSubscriptionMessage{},
+		AppConfigStores:                []AppConfigStore{},
+		AppConfigValues:                []AppConfigValue{},
 		StorageAccounts:                []StorageAccount{},
 		KeyVaults:                      []KeyVault{},
 		KeyVaultSecrets:                []KeyVaultSecret{},

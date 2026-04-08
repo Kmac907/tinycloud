@@ -983,6 +983,96 @@ func TestSnapshotAndRestorePreserveServiceBusTopicState(t *testing.T) {
 	}
 }
 
+func TestAppConfigCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	configStore, created, err := store.CreateAppConfigStore("tiny-settings")
+	if err != nil {
+		t.Fatalf("CreateAppConfigStore() error = %v", err)
+	}
+	if !created || configStore.Name != "tiny-settings" {
+		t.Fatalf("CreateAppConfigStore() = %#v, %t", configStore, created)
+	}
+
+	value, err := store.PutAppConfigValue("tiny-settings", "FeatureX:Enabled", "prod", "true", "text/plain")
+	if err != nil {
+		t.Fatalf("PutAppConfigValue() error = %v", err)
+	}
+	if value.Value != "true" {
+		t.Fatalf("Value = %q, want %q", value.Value, "true")
+	}
+
+	got, err := store.GetAppConfigValue("tiny-settings", "FeatureX:Enabled", "prod")
+	if err != nil {
+		t.Fatalf("GetAppConfigValue() error = %v", err)
+	}
+	if got.ContentType != "text/plain" {
+		t.Fatalf("ContentType = %q, want %q", got.ContentType, "text/plain")
+	}
+
+	values, err := store.ListAppConfigValues("tiny-settings")
+	if err != nil {
+		t.Fatalf("ListAppConfigValues() error = %v", err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("len(values) = %d, want %d", len(values), 1)
+	}
+
+	if err := store.DeleteAppConfigValue("tiny-settings", "FeatureX:Enabled", "prod"); err != nil {
+		t.Fatalf("DeleteAppConfigValue() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreserveAppConfigState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateAppConfigStore("tiny-settings"); err != nil {
+		t.Fatalf("CreateAppConfigStore() error = %v", err)
+	}
+	if _, err := store.PutAppConfigValue("tiny-settings", "FeatureX:Enabled", "prod", "true", "text/plain"); err != nil {
+		t.Fatalf("PutAppConfigValue() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "appconfig.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	value, err := restoreStore.GetAppConfigValue("tiny-settings", "FeatureX:Enabled", "prod")
+	if err != nil {
+		t.Fatalf("GetAppConfigValue() error = %v", err)
+	}
+	if value.Value != "true" {
+		t.Fatalf("Value = %q, want %q", value.Value, "true")
+	}
+}
+
 func TestKeyVaultCRUD(t *testing.T) {
 	t.Parallel()
 
