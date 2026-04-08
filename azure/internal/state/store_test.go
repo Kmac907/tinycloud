@@ -1193,6 +1193,115 @@ func TestSnapshotAndRestorePreserveCosmosState(t *testing.T) {
 	}
 }
 
+func TestPrivateDNSCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	zone, err := store.UpsertPrivateDNSZone("sub-123", "rg-test", "internal.test", map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertPrivateDNSZone() error = %v", err)
+	}
+	if zone.Name != "internal.test" {
+		t.Fatalf("Name = %q, want %q", zone.Name, "internal.test")
+	}
+
+	gotZone, err := store.GetPrivateDNSZone("sub-123", "rg-test", "internal.test")
+	if err != nil {
+		t.Fatalf("GetPrivateDNSZone() error = %v", err)
+	}
+	if gotZone.Tags["env"] != "test" {
+		t.Fatalf("Tags[env] = %q, want %q", gotZone.Tags["env"], "test")
+	}
+
+	zones, err := store.ListPrivateDNSZones("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListPrivateDNSZones() error = %v", err)
+	}
+	if len(zones) != 1 {
+		t.Fatalf("len(zones) = %d, want %d", len(zones), 1)
+	}
+
+	recordSet, err := store.UpsertPrivateDNSARecordSet("sub-123", "rg-test", "internal.test", "api", 60, []string{"10.0.0.4", "10.0.0.5"})
+	if err != nil {
+		t.Fatalf("UpsertPrivateDNSARecordSet() error = %v", err)
+	}
+	if len(recordSet.IPv4Addresses) != 2 {
+		t.Fatalf("len(IPv4Addresses) = %d, want %d", len(recordSet.IPv4Addresses), 2)
+	}
+
+	gotRecordSet, err := store.GetPrivateDNSARecordSet("sub-123", "rg-test", "internal.test", "api")
+	if err != nil {
+		t.Fatalf("GetPrivateDNSARecordSet() error = %v", err)
+	}
+	if gotRecordSet.TTL != 60 {
+		t.Fatalf("TTL = %d, want %d", gotRecordSet.TTL, 60)
+	}
+
+	recordSets, err := store.ListPrivateDNSARecordSets("sub-123", "rg-test", "internal.test")
+	if err != nil {
+		t.Fatalf("ListPrivateDNSARecordSets() error = %v", err)
+	}
+	if len(recordSets) != 1 {
+		t.Fatalf("len(recordSets) = %d, want %d", len(recordSets), 1)
+	}
+
+	if err := store.DeletePrivateDNSARecordSet("sub-123", "rg-test", "internal.test", "api"); err != nil {
+		t.Fatalf("DeletePrivateDNSARecordSet() error = %v", err)
+	}
+	if err := store.DeletePrivateDNSZone("sub-123", "rg-test", "internal.test"); err != nil {
+		t.Fatalf("DeletePrivateDNSZone() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreservePrivateDNSState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertPrivateDNSZone("sub-123", "rg-test", "internal.test", nil); err != nil {
+		t.Fatalf("UpsertPrivateDNSZone() error = %v", err)
+	}
+	if _, err := store.UpsertPrivateDNSARecordSet("sub-123", "rg-test", "internal.test", "api", 60, []string{"10.0.0.4"}); err != nil {
+		t.Fatalf("UpsertPrivateDNSARecordSet() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "dns.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	recordSet, err := restoreStore.GetPrivateDNSARecordSet("sub-123", "rg-test", "internal.test", "api")
+	if err != nil {
+		t.Fatalf("GetPrivateDNSARecordSet() error = %v", err)
+	}
+	if len(recordSet.IPv4Addresses) != 1 || recordSet.IPv4Addresses[0] != "10.0.0.4" {
+		t.Fatalf("IPv4Addresses = %#v, want %#v", recordSet.IPv4Addresses, []string{"10.0.0.4"})
+	}
+}
+
 func TestKeyVaultCRUD(t *testing.T) {
 	t.Parallel()
 

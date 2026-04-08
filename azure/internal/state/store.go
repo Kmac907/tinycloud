@@ -42,6 +42,8 @@ type Document struct {
 	CosmosDatabases                []CosmosDatabase                `json:"cosmosDatabases,omitempty"`
 	CosmosContainers               []CosmosContainer               `json:"cosmosContainers,omitempty"`
 	CosmosDocuments                []CosmosDocument                `json:"cosmosDocuments,omitempty"`
+	PrivateDNSZones                []PrivateDNSZone                `json:"privateDnsZones,omitempty"`
+	PrivateDNSARecordSets          []PrivateDNSARecordSet          `json:"privateDnsARecordSets,omitempty"`
 	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
 	KeyVaults                      []KeyVault                      `json:"keyVaults,omitempty"`
 	KeyVaultSecrets                []KeyVaultSecret                `json:"keyVaultSecrets,omitempty"`
@@ -241,6 +243,30 @@ type CosmosDocument struct {
 	Body          map[string]any `json:"body"`
 	CreatedAt     string         `json:"createdAt"`
 	UpdatedAt     string         `json:"updatedAt"`
+}
+
+type PrivateDNSZone struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type PrivateDNSARecordSet struct {
+	ID                string   `json:"id"`
+	SubscriptionID    string   `json:"subscriptionId"`
+	ResourceGroupName string   `json:"resourceGroupName"`
+	ZoneName          string   `json:"zoneName"`
+	RelativeName      string   `json:"relativeName"`
+	TTL               int      `json:"ttl"`
+	IPv4Addresses     []string `json:"ipv4Addresses"`
+	ProvisioningState string   `json:"provisioningState"`
+	CreatedAt         string   `json:"createdAt"`
+	UpdatedAt         string   `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -485,6 +511,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.CosmosDocuments == nil {
 		doc.CosmosDocuments = []CosmosDocument{}
+	}
+	if doc.PrivateDNSZones == nil {
+		doc.PrivateDNSZones = []PrivateDNSZone{}
+	}
+	if doc.PrivateDNSARecordSets == nil {
+		doc.PrivateDNSARecordSets = []PrivateDNSARecordSet{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -3112,6 +3144,309 @@ WHERE account_name = ? AND database_name = ? AND container_name = ? AND id = ?`,
 	return nil
 }
 
+func (s *Store) UpsertPrivateDNSZone(subscriptionID, resourceGroupName, name string, tags map[string]string) (PrivateDNSZone, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return PrivateDNSZone{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return PrivateDNSZone{}, err
+	}
+
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	name = normalizeDNSZoneName(name)
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM private_dns_zones WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return PrivateDNSZone{}, fmt.Errorf("read existing private dns zone: %w", err)
+	}
+
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return PrivateDNSZone{}, fmt.Errorf("marshal private dns zone tags: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO private_dns_zones (
+    id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, string(tagsJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return PrivateDNSZone{}, fmt.Errorf("upsert private dns zone: %w", err)
+	}
+
+	return s.getPrivateDNSZoneLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetPrivateDNSZone(subscriptionID, resourceGroupName, name string) (PrivateDNSZone, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return PrivateDNSZone{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return PrivateDNSZone{}, err
+	}
+
+	return s.getPrivateDNSZoneLocked(db, subscriptionID, resourceGroupName, normalizeDNSZoneName(name))
+}
+
+func (s *Store) ListPrivateDNSZones(subscriptionID, resourceGroupName string) ([]PrivateDNSZone, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
+FROM private_dns_zones
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list private dns zones: %w", err)
+	}
+	defer rows.Close()
+
+	var zones []PrivateDNSZone
+	for rows.Next() {
+		zone, err := scanPrivateDNSZone(rows)
+		if err != nil {
+			return nil, err
+		}
+		zones = append(zones, zone)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate private dns zones: %w", err)
+	}
+	return zones, nil
+}
+
+func (s *Store) DeletePrivateDNSZone(subscriptionID, resourceGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	name = normalizeDNSZoneName(name)
+	result, err := db.Exec(`
+DELETE FROM private_dns_zones
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	if err != nil {
+		return fmt.Errorf("delete private dns zone: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete private dns zone rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := db.Exec(`
+DELETE FROM private_dns_a_record_sets
+WHERE subscription_id = ? AND resource_group_name = ? AND zone_name = ?`, subscriptionID, resourceGroupName, name); err != nil {
+		return fmt.Errorf("delete private dns record sets: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertPrivateDNSARecordSet(subscriptionID, resourceGroupName, zoneName, relativeName string, ttl int, ipv4Addresses []string) (PrivateDNSARecordSet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+
+	zoneName = normalizeDNSZoneName(zoneName)
+	relativeName = normalizeDNSRelativeName(relativeName)
+	if ttl <= 0 {
+		ttl = 300
+	}
+
+	var zoneExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM private_dns_zones WHERE subscription_id = ? AND resource_group_name = ? AND name = ?
+)`, subscriptionID, resourceGroupName, zoneName).Scan(&zoneExists); err != nil {
+		return PrivateDNSARecordSet{}, fmt.Errorf("query private dns zone: %w", err)
+	}
+	if !zoneExists {
+		return PrivateDNSARecordSet{}, sql.ErrNoRows
+	}
+
+	addresses := make([]string, 0, len(ipv4Addresses))
+	for _, address := range ipv4Addresses {
+		address = strings.TrimSpace(address)
+		if address == "" {
+			continue
+		}
+		addresses = append(addresses, address)
+	}
+	if len(addresses) == 0 {
+		return PrivateDNSARecordSet{}, fmt.Errorf("private dns A record set requires at least one ipv4 address")
+	}
+
+	addressesJSON, err := json.Marshal(addresses)
+	if err != nil {
+		return PrivateDNSARecordSet{}, fmt.Errorf("marshal private dns A record set addresses: %w", err)
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/A/%s", subscriptionID, resourceGroupName, zoneName, relativeName)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM private_dns_a_record_sets WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return PrivateDNSARecordSet{}, fmt.Errorf("read existing private dns A record set: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO private_dns_a_record_sets (
+    id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    ttl = excluded.ttl,
+    ipv4_addresses_json = excluded.ipv4_addresses_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, zoneName, relativeName, ttl, string(addressesJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return PrivateDNSARecordSet{}, fmt.Errorf("upsert private dns A record set: %w", err)
+	}
+
+	return s.getPrivateDNSARecordSetLocked(db, subscriptionID, resourceGroupName, zoneName, relativeName)
+}
+
+func (s *Store) GetPrivateDNSARecordSet(subscriptionID, resourceGroupName, zoneName, relativeName string) (PrivateDNSARecordSet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+
+	return s.getPrivateDNSARecordSetLocked(db, subscriptionID, resourceGroupName, normalizeDNSZoneName(zoneName), normalizeDNSRelativeName(relativeName))
+}
+
+func (s *Store) ListPrivateDNSARecordSets(subscriptionID, resourceGroupName, zoneName string) ([]PrivateDNSARecordSet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at
+FROM private_dns_a_record_sets
+WHERE subscription_id = ? AND resource_group_name = ? AND zone_name = ?
+ORDER BY relative_name`, subscriptionID, resourceGroupName, normalizeDNSZoneName(zoneName))
+	if err != nil {
+		return nil, fmt.Errorf("list private dns A record sets: %w", err)
+	}
+	defer rows.Close()
+
+	var recordSets []PrivateDNSARecordSet
+	for rows.Next() {
+		recordSet, err := scanPrivateDNSARecordSet(rows)
+		if err != nil {
+			return nil, err
+		}
+		recordSets = append(recordSets, recordSet)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate private dns A record sets: %w", err)
+	}
+	return recordSets, nil
+}
+
+func (s *Store) DeletePrivateDNSARecordSet(subscriptionID, resourceGroupName, zoneName, relativeName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM private_dns_a_record_sets
+WHERE subscription_id = ? AND resource_group_name = ? AND zone_name = ? AND relative_name = ?`,
+		subscriptionID, resourceGroupName, normalizeDNSZoneName(zoneName), normalizeDNSRelativeName(relativeName),
+	)
+	if err != nil {
+		return fmt.Errorf("delete private dns A record set: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete private dns A record set rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3910,6 +4245,28 @@ CREATE TABLE IF NOT EXISTS cosmos_documents (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, database_name, container_name, id)
 );
+CREATE TABLE IF NOT EXISTS private_dns_zones (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS private_dns_a_record_sets (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    zone_name TEXT NOT NULL,
+    relative_name TEXT NOT NULL,
+    ttl INTEGER NOT NULL,
+    ipv4_addresses_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -4455,6 +4812,46 @@ ORDER BY account_name, database_name, container_name, id`)
 		return Document{}, fmt.Errorf("iterate cosmos documents: %w", err)
 	}
 
+	privateDNSZoneRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
+FROM private_dns_zones
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read private dns zones: %w", err)
+	}
+	defer privateDNSZoneRows.Close()
+
+	for privateDNSZoneRows.Next() {
+		zone, err := scanPrivateDNSZone(privateDNSZoneRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.PrivateDNSZones = append(doc.PrivateDNSZones, zone)
+	}
+	if err := privateDNSZoneRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate private dns zones: %w", err)
+	}
+
+	privateDNSARecordSetRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at
+FROM private_dns_a_record_sets
+ORDER BY subscription_id, resource_group_name, zone_name, relative_name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read private dns A record sets: %w", err)
+	}
+	defer privateDNSARecordSetRows.Close()
+
+	for privateDNSARecordSetRows.Next() {
+		recordSet, err := scanPrivateDNSARecordSet(privateDNSARecordSetRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.PrivateDNSARecordSets = append(doc.PrivateDNSARecordSets, recordSet)
+	}
+	if err := privateDNSARecordSetRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate private dns A record sets: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -4626,6 +5023,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.CosmosDocuments == nil {
 		doc.CosmosDocuments = []CosmosDocument{}
 	}
+	if doc.PrivateDNSZones == nil {
+		doc.PrivateDNSZones = []PrivateDNSZone{}
+	}
+	if doc.PrivateDNSARecordSets == nil {
+		doc.PrivateDNSARecordSets = []PrivateDNSARecordSet{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -4723,6 +5126,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM blob_containers`); err != nil {
 		err = fmt.Errorf("clear blob containers: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM private_dns_a_record_sets`); err != nil {
+		err = fmt.Errorf("clear private dns A record sets: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM private_dns_zones`); err != nil {
+		err = fmt.Errorf("clear private dns zones: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_accounts`); err != nil {
@@ -5187,6 +5598,77 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, zone := range doc.PrivateDNSZones {
+		if zone.Tags == nil {
+			zone.Tags = map[string]string{}
+		}
+		if zone.ProvisioningState == "" {
+			zone.ProvisioningState = "Succeeded"
+		}
+		if zone.CreatedAt == "" {
+			zone.CreatedAt = doc.UpdatedAt
+		}
+		if zone.UpdatedAt == "" {
+			zone.UpdatedAt = doc.UpdatedAt
+		}
+		tagsJSON, marshalErr := json.Marshal(zone.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal private dns zone tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO private_dns_zones (id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			zone.ID,
+			zone.SubscriptionID,
+			zone.ResourceGroupName,
+			normalizeDNSZoneName(zone.Name),
+			string(tagsJSON),
+			zone.ProvisioningState,
+			zone.CreatedAt,
+			zone.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert private dns zone: %w", err)
+			return err
+		}
+	}
+	for _, recordSet := range doc.PrivateDNSARecordSets {
+		if recordSet.TTL <= 0 {
+			recordSet.TTL = 300
+		}
+		if recordSet.IPv4Addresses == nil {
+			recordSet.IPv4Addresses = []string{}
+		}
+		if recordSet.ProvisioningState == "" {
+			recordSet.ProvisioningState = "Succeeded"
+		}
+		if recordSet.CreatedAt == "" {
+			recordSet.CreatedAt = doc.UpdatedAt
+		}
+		if recordSet.UpdatedAt == "" {
+			recordSet.UpdatedAt = doc.UpdatedAt
+		}
+		addressesJSON, marshalErr := json.Marshal(recordSet.IPv4Addresses)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal private dns A record set addresses: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO private_dns_a_record_sets (id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			recordSet.ID,
+			recordSet.SubscriptionID,
+			recordSet.ResourceGroupName,
+			normalizeDNSZoneName(recordSet.ZoneName),
+			normalizeDNSRelativeName(recordSet.RelativeName),
+			recordSet.TTL,
+			string(addressesJSON),
+			recordSet.ProvisioningState,
+			recordSet.CreatedAt,
+			recordSet.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert private dns A record set: %w", err)
+			return err
+		}
+	}
 	for _, account := range doc.StorageAccounts {
 		if account.Kind == "" {
 			account.Kind = "StorageV2"
@@ -5378,6 +5860,8 @@ func newDocument() Document {
 		CosmosDatabases:                []CosmosDatabase{},
 		CosmosContainers:               []CosmosContainer{},
 		CosmosDocuments:                []CosmosDocument{},
+		PrivateDNSZones:                []PrivateDNSZone{},
+		PrivateDNSARecordSets:          []PrivateDNSARecordSet{},
 		StorageAccounts:                []StorageAccount{},
 		KeyVaults:                      []KeyVault{},
 		KeyVaultSecrets:                []KeyVaultSecret{},
@@ -5387,6 +5871,20 @@ func newDocument() Document {
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+func normalizeDNSZoneName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	return strings.TrimSuffix(name, ".")
+}
+
+func normalizeDNSRelativeName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	name = strings.TrimSuffix(name, ".")
+	if name == "" {
+		return "@"
+	}
+	return name
 }
 
 func (s *Store) getResourceGroupLocked(db *sql.DB, subscriptionID, name string) (ResourceGroup, error) {
@@ -5531,6 +6029,78 @@ func scanCosmosDocument(scanner interface {
 		document.Body = map[string]any{}
 	}
 	return document, nil
+}
+
+func (s *Store) getPrivateDNSZoneLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (PrivateDNSZone, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
+FROM private_dns_zones
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanPrivateDNSZone(row)
+}
+
+func scanPrivateDNSZone(scanner interface {
+	Scan(dest ...any) error
+}) (PrivateDNSZone, error) {
+	var zone PrivateDNSZone
+	var tagsJSON string
+	if err := scanner.Scan(
+		&zone.ID,
+		&zone.SubscriptionID,
+		&zone.ResourceGroupName,
+		&zone.Name,
+		&tagsJSON,
+		&zone.ProvisioningState,
+		&zone.CreatedAt,
+		&zone.UpdatedAt,
+	); err != nil {
+		return PrivateDNSZone{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &zone.Tags); err != nil {
+		return PrivateDNSZone{}, fmt.Errorf("parse private dns zone tags: %w", err)
+	}
+	if zone.Tags == nil {
+		zone.Tags = map[string]string{}
+	}
+	return zone, nil
+}
+
+func (s *Store) getPrivateDNSARecordSetLocked(db *sql.DB, subscriptionID, resourceGroupName, zoneName, relativeName string) (PrivateDNSARecordSet, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at
+FROM private_dns_a_record_sets
+WHERE subscription_id = ? AND resource_group_name = ? AND zone_name = ? AND relative_name = ?`,
+		subscriptionID, resourceGroupName, zoneName, relativeName,
+	)
+	return scanPrivateDNSARecordSet(row)
+}
+
+func scanPrivateDNSARecordSet(scanner interface {
+	Scan(dest ...any) error
+}) (PrivateDNSARecordSet, error) {
+	var recordSet PrivateDNSARecordSet
+	var addressesJSON string
+	if err := scanner.Scan(
+		&recordSet.ID,
+		&recordSet.SubscriptionID,
+		&recordSet.ResourceGroupName,
+		&recordSet.ZoneName,
+		&recordSet.RelativeName,
+		&recordSet.TTL,
+		&addressesJSON,
+		&recordSet.ProvisioningState,
+		&recordSet.CreatedAt,
+		&recordSet.UpdatedAt,
+	); err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+	if err := json.Unmarshal([]byte(addressesJSON), &recordSet.IPv4Addresses); err != nil {
+		return PrivateDNSARecordSet{}, fmt.Errorf("parse private dns A record set addresses: %w", err)
+	}
+	if recordSet.IPv4Addresses == nil {
+		recordSet.IPv4Addresses = []string{}
+	}
+	return recordSet, nil
 }
 
 func (s *Store) getKeyVaultLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (KeyVault, error) {
