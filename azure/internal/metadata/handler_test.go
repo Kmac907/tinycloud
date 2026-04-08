@@ -32,6 +32,7 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 		Authentication map[string]string `json:"authentication"`
 		Management     map[string]string `json:"management"`
 		ResourceMgr    map[string]any    `json:"resourceManager"`
+		Suffixes       map[string]string `json:"suffixes"`
 		Services       map[string]string `json:"services"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -49,11 +50,23 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Management["oauth"] != cfg.OAuthTokenURL() {
 		t.Fatalf("management.oauth = %q, want %q", body.Management["oauth"], cfg.OAuthTokenURL())
 	}
+	if body.Management["tenants"] != cfg.ManagementHTTPURL()+"/tenants" {
+		t.Fatalf("management.tenants = %q, want %q", body.Management["tenants"], cfg.ManagementHTTPURL()+"/tenants")
+	}
 	if body.Services["blob"] != cfg.BlobURL() {
 		t.Fatalf("services.blob = %q, want %q", body.Services["blob"], cfg.BlobURL())
+	}
+	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
+		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)
+	}
+	if body.Suffixes["storage"] != cfg.AdvertiseHost+":"+cfg.Blob {
+		t.Fatalf("suffixes.storage = %q, want %q", body.Suffixes["storage"], cfg.AdvertiseHost+":"+cfg.Blob)
 	}
 	providers, _ := body.ResourceMgr["providers"].([]any)
 	if len(providers) != 3 {
 		t.Fatalf("len(resourceManager.providers) = %d, want %d", len(providers), 3)
+	}
+	if body.ResourceMgr["resourceManagerEndpointUrl"] != cfg.ManagementHTTPURL() {
+		t.Fatalf("resourceManager.resourceManagerEndpointUrl = %v, want %q", body.ResourceMgr["resourceManagerEndpointUrl"], cfg.ManagementHTTPURL())
 	}
 }
