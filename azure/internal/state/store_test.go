@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestInitCreatesSQLiteDatabase(t *testing.T) {
@@ -445,6 +446,138 @@ func TestStorageAccountCRUD(t *testing.T) {
 	}
 	if len(accounts) != 0 {
 		t.Fatalf("len(accounts) after delete = %d, want %d", len(accounts), 0)
+	}
+}
+
+func TestQueueStorageRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertStorageAccount("sub-123", "rg-test", "storagetest", "westus2", "StorageV2", "Standard_LRS", nil); err != nil {
+		t.Fatalf("UpsertStorageAccount() error = %v", err)
+	}
+
+	account, err := store.GetStorageAccountByName("storagetest")
+	if err != nil {
+		t.Fatalf("GetStorageAccountByName() error = %v", err)
+	}
+	if account.ResourceGroupName != "rg-test" {
+		t.Fatalf("ResourceGroupName = %q, want %q", account.ResourceGroupName, "rg-test")
+	}
+
+	queue, created, err := store.CreateQueue("storagetest", "jobs")
+	if err != nil {
+		t.Fatalf("CreateQueue() error = %v", err)
+	}
+	if !created {
+		t.Fatal("CreateQueue() created = false, want true")
+	}
+	if queue.Name != "jobs" {
+		t.Fatalf("Name = %q, want %q", queue.Name, "jobs")
+	}
+
+	queues, err := store.ListQueues("storagetest")
+	if err != nil {
+		t.Fatalf("ListQueues() error = %v", err)
+	}
+	if len(queues) != 1 {
+		t.Fatalf("len(queues) = %d, want %d", len(queues), 1)
+	}
+
+	message, err := store.EnqueueMessage("storagetest", "jobs", "work-item-1")
+	if err != nil {
+		t.Fatalf("EnqueueMessage() error = %v", err)
+	}
+	if message.ID == "" {
+		t.Fatal("message ID is empty")
+	}
+
+	messages, err := store.ReceiveMessages("storagetest", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].MessageText != "work-item-1" {
+		t.Fatalf("MessageText = %q, want %q", messages[0].MessageText, "work-item-1")
+	}
+	if messages[0].DequeueCount != 1 {
+		t.Fatalf("DequeueCount = %d, want %d", messages[0].DequeueCount, 1)
+	}
+
+	if err := store.DeleteMessage("storagetest", "jobs", messages[0].ID, messages[0].PopReceipt); err != nil {
+		t.Fatalf("DeleteMessage() error = %v", err)
+	}
+
+	messages, err = store.ReceiveMessages("storagetest", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveMessages() after delete error = %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("len(messages) after delete = %d, want %d", len(messages), 0)
+	}
+}
+
+func TestSnapshotAndRestorePreserveQueueState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertStorageAccount("sub-123", "rg-test", "storagetest", "westus2", "StorageV2", "Standard_LRS", nil); err != nil {
+		t.Fatalf("UpsertStorageAccount() error = %v", err)
+	}
+	if _, _, err := store.CreateQueue("storagetest", "jobs"); err != nil {
+		t.Fatalf("CreateQueue() error = %v", err)
+	}
+	if _, err := store.EnqueueMessage("storagetest", "jobs", "work-item-1"); err != nil {
+		t.Fatalf("EnqueueMessage() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "queues.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	queues, err := restoreStore.ListQueues("storagetest")
+	if err != nil {
+		t.Fatalf("ListQueues() error = %v", err)
+	}
+	if len(queues) != 1 {
+		t.Fatalf("len(queues) = %d, want %d", len(queues), 1)
+	}
+
+	messages, err := restoreStore.ReceiveMessages("storagetest", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].MessageText != "work-item-1" {
+		t.Fatalf("MessageText = %q, want %q", messages[0].MessageText, "work-item-1")
 	}
 }
 

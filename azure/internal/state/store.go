@@ -26,6 +26,8 @@ type Document struct {
 	Resources       map[string]ResourceGroup `json:"resources"`
 	BlobContainers  []BlobContainer          `json:"blobContainers,omitempty"`
 	Blobs           []BlobObject             `json:"blobs,omitempty"`
+	Queues          []StorageQueue           `json:"queues,omitempty"`
+	QueueMessages   []QueueMessage           `json:"queueMessages,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
 	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
 	KeyVaultSecrets []KeyVaultSecret         `json:"keyVaultSecrets,omitempty"`
@@ -87,6 +89,25 @@ type BlobObject struct {
 	ETag          string
 	CreatedAt     string
 	UpdatedAt     string
+}
+
+type StorageQueue struct {
+	AccountName string `json:"accountName"`
+	Name        string `json:"name"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type QueueMessage struct {
+	AccountName   string `json:"accountName"`
+	QueueName     string `json:"queueName"`
+	ID            string `json:"id"`
+	MessageText   string `json:"messageText"`
+	PopReceipt    string `json:"popReceipt"`
+	DequeueCount  int    `json:"dequeueCount"`
+	VisibleAt     string `json:"visibleAt"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -283,6 +304,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.Blobs == nil {
 		doc.Blobs = []BlobObject{}
+	}
+	if doc.Queues == nil {
+		doc.Queues = []StorageQueue{}
+	}
+	if doc.QueueMessages == nil {
+		doc.QueueMessages = []QueueMessage{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -948,6 +975,271 @@ WHERE account_name = ? AND container_name = ? AND name = ?`, accountName, contai
 	return nil
 }
 
+func (s *Store) CreateQueue(accountName, name string) (StorageQueue, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return StorageQueue{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return StorageQueue{}, false, err
+	}
+
+	var accountExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM storage_accounts WHERE name = ?
+)`, accountName).Scan(&accountExists); err != nil {
+		return StorageQueue{}, false, fmt.Errorf("query storage account: %w", err)
+	}
+	if !accountExists {
+		return StorageQueue{}, false, sql.ErrNoRows
+	}
+
+	var existing StorageQueue
+	err = db.QueryRow(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_queues
+WHERE account_name = ? AND name = ?`, accountName, name).Scan(
+		&existing.AccountName,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return StorageQueue{}, false, fmt.Errorf("read storage queue: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO storage_queues (account_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, accountName, name, nowValue, nowValue); err != nil {
+		return StorageQueue{}, false, fmt.Errorf("create storage queue: %w", err)
+	}
+
+	return StorageQueue{
+		AccountName: accountName,
+		Name:        name,
+		CreatedAt:   nowValue,
+		UpdatedAt:   nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListQueues(accountName string) ([]StorageQueue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_queues
+WHERE account_name = ?
+ORDER BY name`, accountName)
+	if err != nil {
+		return nil, fmt.Errorf("list storage queues: %w", err)
+	}
+	defer rows.Close()
+
+	var queues []StorageQueue
+	for rows.Next() {
+		var queue StorageQueue
+		if err := rows.Scan(&queue.AccountName, &queue.Name, &queue.CreatedAt, &queue.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan storage queue: %w", err)
+		}
+		queues = append(queues, queue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate storage queues: %w", err)
+	}
+	return queues, nil
+}
+
+func (s *Store) EnqueueMessage(accountName, queueName, messageText string) (QueueMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return QueueMessage{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return QueueMessage{}, err
+	}
+
+	var queueExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM storage_queues WHERE account_name = ? AND name = ?
+)`, accountName, queueName).Scan(&queueExists); err != nil {
+		return QueueMessage{}, fmt.Errorf("query storage queue: %w", err)
+	}
+	if !queueExists {
+		return QueueMessage{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	messageID := fmt.Sprintf("msg-%d", time.Now().UTC().UnixNano())
+	popReceipt := fmt.Sprintf("pop-%d", time.Now().UTC().UnixNano())
+	if _, err := db.Exec(`
+INSERT INTO queue_messages (
+    account_name, queue_name, id, message_text, pop_receipt, dequeue_count, visible_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		accountName, queueName, messageID, messageText, popReceipt, 0, nowValue, nowValue, nowValue,
+	); err != nil {
+		return QueueMessage{}, fmt.Errorf("enqueue queue message: %w", err)
+	}
+
+	return QueueMessage{
+		AccountName:  accountName,
+		QueueName:    queueName,
+		ID:           messageID,
+		MessageText:  messageText,
+		PopReceipt:   popReceipt,
+		DequeueCount: 0,
+		VisibleAt:    nowValue,
+		CreatedAt:    nowValue,
+		UpdatedAt:    nowValue,
+	}, nil
+}
+
+func (s *Store) ReceiveMessages(accountName, queueName string, maxMessages int, visibilityTimeout time.Duration) ([]QueueMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+	if maxMessages <= 0 {
+		maxMessages = 1
+	}
+
+	var queueExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM storage_queues WHERE account_name = ? AND name = ?
+)`, accountName, queueName).Scan(&queueExists); err != nil {
+		return nil, fmt.Errorf("query storage queue: %w", err)
+	}
+	if !queueExists {
+		return nil, sql.ErrNoRows
+	}
+
+	nowValue := time.Now().UTC()
+	rows, err := db.Query(`
+SELECT account_name, queue_name, id, message_text, pop_receipt, dequeue_count, visible_at, created_at, updated_at
+FROM queue_messages
+WHERE account_name = ? AND queue_name = ? AND visible_at <= ?
+ORDER BY created_at
+LIMIT ?`, accountName, queueName, nowValue.Format(time.RFC3339Nano), maxMessages)
+	if err != nil {
+		return nil, fmt.Errorf("receive queue messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []QueueMessage
+	for rows.Next() {
+		var message QueueMessage
+		if err := rows.Scan(
+			&message.AccountName,
+			&message.QueueName,
+			&message.ID,
+			&message.MessageText,
+			&message.PopReceipt,
+			&message.DequeueCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan queue message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate queue messages: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close queue messages rows: %w", err)
+	}
+
+	for i := range messages {
+		messages[i].DequeueCount++
+		messages[i].PopReceipt = fmt.Sprintf("pop-%d", time.Now().UTC().UnixNano())
+		messages[i].VisibleAt = nowValue.Add(visibilityTimeout).Format(time.RFC3339Nano)
+		messages[i].UpdatedAt = nowValue.Format(time.RFC3339Nano)
+		if _, err := db.Exec(`
+UPDATE queue_messages
+SET pop_receipt = ?, dequeue_count = ?, visible_at = ?, updated_at = ?
+WHERE account_name = ? AND queue_name = ? AND id = ?`,
+			messages[i].PopReceipt,
+			messages[i].DequeueCount,
+			messages[i].VisibleAt,
+			messages[i].UpdatedAt,
+			messages[i].AccountName,
+			messages[i].QueueName,
+			messages[i].ID,
+		); err != nil {
+			return nil, fmt.Errorf("update queue message visibility: %w", err)
+		}
+	}
+	return messages, nil
+}
+
+func (s *Store) DeleteMessage(accountName, queueName, messageID, popReceipt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM queue_messages
+WHERE account_name = ? AND queue_name = ? AND id = ? AND pop_receipt = ?`,
+		accountName, queueName, messageID, popReceipt,
+	)
+	if err != nil {
+		return fmt.Errorf("delete queue message: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete queue message rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1021,6 +1313,29 @@ func (s *Store) GetStorageAccount(subscriptionID, resourceGroupName, name string
 	}
 
 	return s.getStorageAccountLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetStorageAccountByName(name string) (StorageAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return StorageAccount{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return StorageAccount{}, err
+	}
+
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM storage_accounts
+WHERE name = ?
+ORDER BY created_at
+LIMIT 1`, name)
+	return scanStorageAccount(row)
 }
 
 func (s *Store) ListStorageAccounts(subscriptionID, resourceGroupName string) ([]StorageAccount, error) {
@@ -1588,6 +1903,25 @@ CREATE TABLE IF NOT EXISTS blobs (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, container_name, name)
 );
+CREATE TABLE IF NOT EXISTS storage_queues (
+    account_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, name)
+);
+CREATE TABLE IF NOT EXISTS queue_messages (
+    account_name TEXT NOT NULL,
+    queue_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    pop_receipt TEXT NOT NULL,
+    dequeue_count INTEGER NOT NULL,
+    visible_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, queue_name, id)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -1774,6 +2108,56 @@ ORDER BY account_name, container_name, name`)
 		return Document{}, fmt.Errorf("iterate blobs: %w", err)
 	}
 
+	queueRows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_queues
+ORDER BY account_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read storage queues: %w", err)
+	}
+	defer queueRows.Close()
+
+	for queueRows.Next() {
+		var queue StorageQueue
+		if err := queueRows.Scan(&queue.AccountName, &queue.Name, &queue.CreatedAt, &queue.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan storage queue: %w", err)
+		}
+		doc.Queues = append(doc.Queues, queue)
+	}
+	if err := queueRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate storage queues: %w", err)
+	}
+
+	queueMessageRows, err := db.Query(`
+SELECT account_name, queue_name, id, message_text, pop_receipt, dequeue_count, visible_at, created_at, updated_at
+FROM queue_messages
+ORDER BY account_name, queue_name, created_at`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read queue messages: %w", err)
+	}
+	defer queueMessageRows.Close()
+
+	for queueMessageRows.Next() {
+		var message QueueMessage
+		if err := queueMessageRows.Scan(
+			&message.AccountName,
+			&message.QueueName,
+			&message.ID,
+			&message.MessageText,
+			&message.PopReceipt,
+			&message.DequeueCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan queue message: %w", err)
+		}
+		doc.QueueMessages = append(doc.QueueMessages, message)
+	}
+	if err := queueMessageRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate queue messages: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -1906,6 +2290,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.Blobs == nil {
 		doc.Blobs = []BlobObject{}
 	}
+	if doc.Queues == nil {
+		doc.Queues = []StorageQueue{}
+	}
+	if doc.QueueMessages == nil {
+		doc.QueueMessages = []QueueMessage{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -1935,6 +2325,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM blobs`); err != nil {
 		err = fmt.Errorf("clear blobs: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM queue_messages`); err != nil {
+		err = fmt.Errorf("clear queue messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM storage_queues`); err != nil {
+		err = fmt.Errorf("clear storage queues: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM blob_containers`); err != nil {
@@ -2049,6 +2447,53 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			blob.UpdatedAt,
 		); err != nil {
 			err = fmt.Errorf("insert blob: %w", err)
+			return err
+		}
+	}
+	for _, queue := range doc.Queues {
+		if queue.CreatedAt == "" {
+			queue.CreatedAt = doc.UpdatedAt
+		}
+		if queue.UpdatedAt == "" {
+			queue.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO storage_queues (account_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			queue.AccountName,
+			queue.Name,
+			queue.CreatedAt,
+			queue.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert storage queue: %w", err)
+			return err
+		}
+	}
+	for _, message := range doc.QueueMessages {
+		if message.PopReceipt == "" {
+			message.PopReceipt = fmt.Sprintf("pop-%d", time.Now().UTC().UnixNano())
+		}
+		if message.VisibleAt == "" {
+			message.VisibleAt = doc.UpdatedAt
+		}
+		if message.CreatedAt == "" {
+			message.CreatedAt = doc.UpdatedAt
+		}
+		if message.UpdatedAt == "" {
+			message.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO queue_messages (account_name, queue_name, id, message_text, pop_receipt, dequeue_count, visible_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			message.AccountName,
+			message.QueueName,
+			message.ID,
+			message.MessageText,
+			message.PopReceipt,
+			message.DequeueCount,
+			message.VisibleAt,
+			message.CreatedAt,
+			message.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert queue message: %w", err)
 			return err
 		}
 	}
@@ -2227,6 +2672,8 @@ func newDocument() Document {
 		Resources:       map[string]ResourceGroup{},
 		BlobContainers:  []BlobContainer{},
 		Blobs:           []BlobObject{},
+		Queues:          []StorageQueue{},
+		QueueMessages:   []QueueMessage{},
 		StorageAccounts: []StorageAccount{},
 		KeyVaults:       []KeyVault{},
 		KeyVaultSecrets: []KeyVaultSecret{},
