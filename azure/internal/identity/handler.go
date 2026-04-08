@@ -25,7 +25,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /metadata/identity/oauth2/token", h.issueManagedIdentityToken)
 }
 
-func (h *Handler) describeIdentity(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) describeIdentity(w http.ResponseWriter, r *http.Request) {
+	if !hasMetadataHeader(r) {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingMetadataHeader", "the Metadata header must be set to true")
+		return
+	}
+
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"name":                 "TinyCloud Managed Identity",
 		"tenantId":             h.cfg.TenantID,
@@ -41,7 +46,7 @@ func (h *Handler) describeIdentity(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) issueManagedIdentityToken(w http.ResponseWriter, r *http.Request) {
-	if !strings.EqualFold(r.Header.Get("Metadata"), "true") {
+	if !hasMetadataHeader(r) {
 		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingMetadataHeader", "the Metadata header must be set to true")
 		return
 	}
@@ -75,4 +80,8 @@ func (h *Handler) issueManagedIdentityToken(w http.ResponseWriter, r *http.Reque
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, token)
+}
+
+func hasMetadataHeader(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Metadata"), "true")
 }

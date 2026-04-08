@@ -20,6 +20,7 @@ func TestDescribeIdentityReturnsEndpoints(t *testing.T) {
 	NewHandler(cfg, auth.NewService(cfg)).Register(mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
+	req.Header.Set("Metadata", "true")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -33,6 +34,31 @@ func TestDescribeIdentityReturnsEndpoints(t *testing.T) {
 	}
 	if body["tokenEndpoint"] != cfg.OAuthTokenURL() {
 		t.Fatalf("tokenEndpoint = %v, want %q", body["tokenEndpoint"], cfg.OAuthTokenURL())
+	}
+}
+
+func TestDescribeIdentityRequiresMetadataHeader(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.FromEnv()
+
+	mux := http.NewServeMux()
+	NewHandler(cfg, auth.NewService(cfg)).Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var body httpx.CloudErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Error.Code != "MissingMetadataHeader" {
+		t.Fatalf("error.code = %q, want %q", body.Error.Code, "MissingMetadataHeader")
 	}
 }
 
