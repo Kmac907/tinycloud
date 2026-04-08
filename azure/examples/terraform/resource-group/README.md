@@ -4,6 +4,15 @@ Use the LocalStack-style wrapper from an elevated PowerShell session:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
+go run ..\..\..\cmd\tinyterraform -- init
+go run ..\..\..\cmd\tinyterraform -- apply -auto-approve
+go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
+```
+
+Equivalent direct wrapper flow:
+
+```powershell
+$env:GOCACHE="$PWD\.gocache"
 ..\..\..\scripts\tinyterraform.ps1 init
 ..\..\..\scripts\tinyterraform.ps1 apply -auto-approve
 ..\..\..\scripts\tinyterraform.ps1 destroy -auto-approve
@@ -15,7 +24,7 @@ Prerequisites:
 - Windows PowerShell running as Administrator so the wrapper can temporarily map `management.azure.com` to TinyCloud
 - Go installed locally so the wrapper can build and run the current TinyCloud binary
 
-`tinyterraform.ps1` is the TinyCloud equivalent of `tflocal`: it invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to TinyCloud's local HTTPS management listener, and cleans up the temporary hosts-file mapping when Terraform exits.
+`cmd/tinyterraform` is the current first-class launcher entrypoint. On Windows it locates and invokes `scripts/tinyterraform.ps1`, which is the TinyCloud equivalent of `tflocal`: it invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to TinyCloud's local HTTPS management listener, and cleans up the temporary hosts-file mapping when Terraform exits.
 
 `tinyterraform.ps1 init` also resets the TinyCloud runtime state before Terraform init so stale emulator resources do not survive failed local applies.
 

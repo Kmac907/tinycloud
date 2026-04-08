@@ -409,7 +409,7 @@ The current repo includes a Terraform example for `azurerm_resource_group` under
 
 Current status:
 
-- the repo contains a Terraform example, `tinycloud env terraform` output, and a Windows wrapper script at `scripts/tinyterraform.ps1`
+- the repo contains a Terraform example, `tinycloud env terraform` output, a first-class launcher at `cmd/tinyterraform`, and a Windows wrapper script at `scripts/tinyterraform.ps1`
 - Terraform is required locally; TinyCloud does not bundle it
 - the supported local flow is the wrapper script, not a raw `terraform apply` against `azurerm`
 - the wrapper has been manually verified end to end for `init`, `apply`, and `destroy` against `azurerm_resource_group`
@@ -468,12 +468,21 @@ Typical local flow on Windows:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
+go run .\cmd\tinyterraform -- init
+go run .\cmd\tinyterraform -- apply -auto-approve
+go run .\cmd\tinyterraform -- destroy -auto-approve
+```
+
+Equivalent direct wrapper flow:
+
+```powershell
+$env:GOCACHE="$PWD\.gocache"
 .\scripts\tinyterraform.ps1 init
 .\scripts\tinyterraform.ps1 apply -auto-approve
 .\scripts\tinyterraform.ps1 destroy -auto-approve
 ```
 
-`tinyterraform.ps1` is intentionally the TinyCloud analogue to `tflocal`: it invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is embedded in the wrapper, but the intended direction is a standalone `tinyaz` helper analogous to `azlocal`. Because of the temporary hosts-file change, the wrapper must be run from an elevated PowerShell session.
+`cmd/tinyterraform` is the current first-class launcher entrypoint. On Windows it locates and invokes `scripts/tinyterraform.ps1`, which in turn invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is embedded in that wrapper, but the intended direction is a standalone `tinyaz` helper analogous to `azlocal`. Because of the temporary hosts-file change, the wrapper path must still be run from an elevated PowerShell session for commands other than `init`.
 
 `tinyterraform.ps1 init` also resets the TinyCloud runtime state before running Terraform init. That keeps emulator state and Terraform state aligned after failed local applies.
 
