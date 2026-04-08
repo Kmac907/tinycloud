@@ -3,3 +3,6 @@ data/
 *.exe
 plan.md
 implementation-plan.md
+scripts/
+agent-workflow.md
+release-validation.md
