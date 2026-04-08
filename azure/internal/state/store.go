@@ -38,6 +38,10 @@ type Document struct {
 	ServiceBusSubscriptionMessages []ServiceBusSubscriptionMessage `json:"serviceBusSubscriptionMessages,omitempty"`
 	AppConfigStores                []AppConfigStore                `json:"appConfigStores,omitempty"`
 	AppConfigValues                []AppConfigValue                `json:"appConfigValues,omitempty"`
+	CosmosAccounts                 []CosmosAccount                 `json:"cosmosAccounts,omitempty"`
+	CosmosDatabases                []CosmosDatabase                `json:"cosmosDatabases,omitempty"`
+	CosmosContainers               []CosmosContainer               `json:"cosmosContainers,omitempty"`
+	CosmosDocuments                []CosmosDocument                `json:"cosmosDocuments,omitempty"`
 	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
 	KeyVaults                      []KeyVault                      `json:"keyVaults,omitempty"`
 	KeyVaultSecrets                []KeyVaultSecret                `json:"keyVaultSecrets,omitempty"`
@@ -204,6 +208,39 @@ type AppConfigValue struct {
 	ContentType string `json:"contentType,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
+}
+
+type CosmosAccount struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type CosmosDatabase struct {
+	AccountName string `json:"accountName"`
+	Name        string `json:"name"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type CosmosContainer struct {
+	AccountName      string `json:"accountName"`
+	DatabaseName     string `json:"databaseName"`
+	Name             string `json:"name"`
+	PartitionKeyPath string `json:"partitionKeyPath"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
+type CosmosDocument struct {
+	AccountName   string         `json:"accountName"`
+	DatabaseName  string         `json:"databaseName"`
+	ContainerName string         `json:"containerName"`
+	ID            string         `json:"id"`
+	PartitionKey  string         `json:"partitionKey"`
+	Body          map[string]any `json:"body"`
+	CreatedAt     string         `json:"createdAt"`
+	UpdatedAt     string         `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -436,6 +473,18 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.AppConfigValues == nil {
 		doc.AppConfigValues = []AppConfigValue{}
+	}
+	if doc.CosmosAccounts == nil {
+		doc.CosmosAccounts = []CosmosAccount{}
+	}
+	if doc.CosmosDatabases == nil {
+		doc.CosmosDatabases = []CosmosDatabase{}
+	}
+	if doc.CosmosContainers == nil {
+		doc.CosmosContainers = []CosmosContainer{}
+	}
+	if doc.CosmosDocuments == nil {
+		doc.CosmosDocuments = []CosmosDocument{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -2639,6 +2688,430 @@ WHERE store_name = ? AND key_name = ? AND label = ?`, storeName, key, label)
 	return nil
 }
 
+func (s *Store) CreateCosmosAccount(name string) (CosmosAccount, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return CosmosAccount{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return CosmosAccount{}, false, err
+	}
+
+	var existing CosmosAccount
+	err = db.QueryRow(`
+SELECT name, created_at, updated_at
+FROM cosmos_accounts
+WHERE name = ?`, name).Scan(&existing.Name, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return CosmosAccount{}, false, fmt.Errorf("read cosmos account: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO cosmos_accounts (name, created_at, updated_at)
+VALUES (?, ?, ?)`, name, nowValue, nowValue); err != nil {
+		return CosmosAccount{}, false, fmt.Errorf("create cosmos account: %w", err)
+	}
+
+	return CosmosAccount{Name: name, CreatedAt: nowValue, UpdatedAt: nowValue}, true, nil
+}
+
+func (s *Store) ListCosmosAccounts() ([]CosmosAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM cosmos_accounts
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list cosmos accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []CosmosAccount
+	for rows.Next() {
+		var account CosmosAccount
+		if err := rows.Scan(&account.Name, &account.CreatedAt, &account.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan cosmos account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cosmos accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+func (s *Store) CreateCosmosDatabase(accountName, databaseName string) (CosmosDatabase, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return CosmosDatabase{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return CosmosDatabase{}, false, err
+	}
+
+	var accountExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM cosmos_accounts WHERE name = ?
+)`, accountName).Scan(&accountExists); err != nil {
+		return CosmosDatabase{}, false, fmt.Errorf("query cosmos account: %w", err)
+	}
+	if !accountExists {
+		return CosmosDatabase{}, false, sql.ErrNoRows
+	}
+
+	var existing CosmosDatabase
+	err = db.QueryRow(`
+SELECT account_name, name, created_at, updated_at
+FROM cosmos_databases
+WHERE account_name = ? AND name = ?`, accountName, databaseName).Scan(
+		&existing.AccountName,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return CosmosDatabase{}, false, fmt.Errorf("read cosmos database: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO cosmos_databases (account_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, accountName, databaseName, nowValue, nowValue); err != nil {
+		return CosmosDatabase{}, false, fmt.Errorf("create cosmos database: %w", err)
+	}
+
+	return CosmosDatabase{AccountName: accountName, Name: databaseName, CreatedAt: nowValue, UpdatedAt: nowValue}, true, nil
+}
+
+func (s *Store) ListCosmosDatabases(accountName string) ([]CosmosDatabase, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM cosmos_databases
+WHERE account_name = ?
+ORDER BY name`, accountName)
+	if err != nil {
+		return nil, fmt.Errorf("list cosmos databases: %w", err)
+	}
+	defer rows.Close()
+
+	var databases []CosmosDatabase
+	for rows.Next() {
+		var database CosmosDatabase
+		if err := rows.Scan(&database.AccountName, &database.Name, &database.CreatedAt, &database.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan cosmos database: %w", err)
+		}
+		databases = append(databases, database)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cosmos databases: %w", err)
+	}
+	return databases, nil
+}
+
+func (s *Store) CreateCosmosContainer(accountName, databaseName, containerName, partitionKeyPath string) (CosmosContainer, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return CosmosContainer{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return CosmosContainer{}, false, err
+	}
+
+	var databaseExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM cosmos_databases WHERE account_name = ? AND name = ?
+)`, accountName, databaseName).Scan(&databaseExists); err != nil {
+		return CosmosContainer{}, false, fmt.Errorf("query cosmos database: %w", err)
+	}
+	if !databaseExists {
+		return CosmosContainer{}, false, sql.ErrNoRows
+	}
+
+	var existing CosmosContainer
+	err = db.QueryRow(`
+SELECT account_name, database_name, name, partition_key_path, created_at, updated_at
+FROM cosmos_containers
+WHERE account_name = ? AND database_name = ? AND name = ?`, accountName, databaseName, containerName).Scan(
+		&existing.AccountName,
+		&existing.DatabaseName,
+		&existing.Name,
+		&existing.PartitionKeyPath,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return CosmosContainer{}, false, fmt.Errorf("read cosmos container: %w", err)
+	}
+
+	if partitionKeyPath == "" {
+		partitionKeyPath = "/partitionKey"
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO cosmos_containers (account_name, database_name, name, partition_key_path, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)`, accountName, databaseName, containerName, partitionKeyPath, nowValue, nowValue); err != nil {
+		return CosmosContainer{}, false, fmt.Errorf("create cosmos container: %w", err)
+	}
+
+	return CosmosContainer{
+		AccountName:      accountName,
+		DatabaseName:     databaseName,
+		Name:             containerName,
+		PartitionKeyPath: partitionKeyPath,
+		CreatedAt:        nowValue,
+		UpdatedAt:        nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListCosmosContainers(accountName, databaseName string) ([]CosmosContainer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, database_name, name, partition_key_path, created_at, updated_at
+FROM cosmos_containers
+WHERE account_name = ? AND database_name = ?
+ORDER BY name`, accountName, databaseName)
+	if err != nil {
+		return nil, fmt.Errorf("list cosmos containers: %w", err)
+	}
+	defer rows.Close()
+
+	var containers []CosmosContainer
+	for rows.Next() {
+		var container CosmosContainer
+		if err := rows.Scan(&container.AccountName, &container.DatabaseName, &container.Name, &container.PartitionKeyPath, &container.CreatedAt, &container.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan cosmos container: %w", err)
+		}
+		containers = append(containers, container)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cosmos containers: %w", err)
+	}
+	return containers, nil
+}
+
+func (s *Store) UpsertCosmosDocument(accountName, databaseName, containerName, id, partitionKey string, body map[string]any) (CosmosDocument, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return CosmosDocument{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return CosmosDocument{}, err
+	}
+
+	var containerExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM cosmos_containers WHERE account_name = ? AND database_name = ? AND name = ?
+)`, accountName, databaseName, containerName).Scan(&containerExists); err != nil {
+		return CosmosDocument{}, fmt.Errorf("query cosmos container: %w", err)
+	}
+	if !containerExists {
+		return CosmosDocument{}, sql.ErrNoRows
+	}
+
+	if body == nil {
+		body = map[string]any{}
+	}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return CosmosDocument{}, fmt.Errorf("marshal cosmos document body: %w", err)
+	}
+
+	nowValue := now()
+	var createdAt string
+	err = db.QueryRow(`
+SELECT created_at
+FROM cosmos_documents
+WHERE account_name = ? AND database_name = ? AND container_name = ? AND id = ?`,
+		accountName, databaseName, containerName, id,
+	).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return CosmosDocument{}, fmt.Errorf("read cosmos document: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO cosmos_documents (account_name, database_name, container_name, id, partition_key, body_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_name, database_name, container_name, id) DO UPDATE SET
+    partition_key = excluded.partition_key,
+    body_json = excluded.body_json,
+    updated_at = excluded.updated_at`,
+		accountName, databaseName, containerName, id, partitionKey, string(bodyJSON), createdAt, nowValue,
+	); err != nil {
+		return CosmosDocument{}, fmt.Errorf("upsert cosmos document: %w", err)
+	}
+
+	return CosmosDocument{
+		AccountName:   accountName,
+		DatabaseName:  databaseName,
+		ContainerName: containerName,
+		ID:            id,
+		PartitionKey:  partitionKey,
+		Body:          body,
+		CreatedAt:     createdAt,
+		UpdatedAt:     nowValue,
+	}, nil
+}
+
+func (s *Store) GetCosmosDocument(accountName, databaseName, containerName, id string) (CosmosDocument, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return CosmosDocument{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return CosmosDocument{}, err
+	}
+
+	return s.getCosmosDocumentLocked(db, accountName, databaseName, containerName, id)
+}
+
+func (s *Store) ListCosmosDocuments(accountName, databaseName, containerName string) ([]CosmosDocument, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, database_name, container_name, id, partition_key, body_json, created_at, updated_at
+FROM cosmos_documents
+WHERE account_name = ? AND database_name = ? AND container_name = ?
+ORDER BY id`, accountName, databaseName, containerName)
+	if err != nil {
+		return nil, fmt.Errorf("list cosmos documents: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []CosmosDocument
+	for rows.Next() {
+		document, err := scanCosmosDocument(rows)
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, document)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cosmos documents: %w", err)
+	}
+	return documents, nil
+}
+
+func (s *Store) DeleteCosmosDocument(accountName, databaseName, containerName, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM cosmos_documents
+WHERE account_name = ? AND database_name = ? AND container_name = ? AND id = ?`,
+		accountName, databaseName, containerName, id,
+	)
+	if err != nil {
+		return fmt.Errorf("delete cosmos document: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete cosmos document rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3405,6 +3878,38 @@ CREATE TABLE IF NOT EXISTS app_config_values (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (store_name, key_name, label)
 );
+CREATE TABLE IF NOT EXISTS cosmos_accounts (
+    name TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cosmos_databases (
+    account_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, name)
+);
+CREATE TABLE IF NOT EXISTS cosmos_containers (
+    account_name TEXT NOT NULL,
+    database_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    partition_key_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, database_name, name)
+);
+CREATE TABLE IF NOT EXISTS cosmos_documents (
+    account_name TEXT NOT NULL,
+    database_name TEXT NOT NULL,
+    container_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    body_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, database_name, container_name, id)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -3870,6 +4375,86 @@ ORDER BY store_name, key_name, label`)
 		return Document{}, fmt.Errorf("iterate app config values: %w", err)
 	}
 
+	cosmosAccountRows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM cosmos_accounts
+ORDER BY name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read cosmos accounts: %w", err)
+	}
+	defer cosmosAccountRows.Close()
+
+	for cosmosAccountRows.Next() {
+		var account CosmosAccount
+		if err := cosmosAccountRows.Scan(&account.Name, &account.CreatedAt, &account.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan cosmos account: %w", err)
+		}
+		doc.CosmosAccounts = append(doc.CosmosAccounts, account)
+	}
+	if err := cosmosAccountRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate cosmos accounts: %w", err)
+	}
+
+	cosmosDatabaseRows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM cosmos_databases
+ORDER BY account_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read cosmos databases: %w", err)
+	}
+	defer cosmosDatabaseRows.Close()
+
+	for cosmosDatabaseRows.Next() {
+		var database CosmosDatabase
+		if err := cosmosDatabaseRows.Scan(&database.AccountName, &database.Name, &database.CreatedAt, &database.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan cosmos database: %w", err)
+		}
+		doc.CosmosDatabases = append(doc.CosmosDatabases, database)
+	}
+	if err := cosmosDatabaseRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate cosmos databases: %w", err)
+	}
+
+	cosmosContainerRows, err := db.Query(`
+SELECT account_name, database_name, name, partition_key_path, created_at, updated_at
+FROM cosmos_containers
+ORDER BY account_name, database_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read cosmos containers: %w", err)
+	}
+	defer cosmosContainerRows.Close()
+
+	for cosmosContainerRows.Next() {
+		var container CosmosContainer
+		if err := cosmosContainerRows.Scan(&container.AccountName, &container.DatabaseName, &container.Name, &container.PartitionKeyPath, &container.CreatedAt, &container.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan cosmos container: %w", err)
+		}
+		doc.CosmosContainers = append(doc.CosmosContainers, container)
+	}
+	if err := cosmosContainerRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate cosmos containers: %w", err)
+	}
+
+	cosmosDocumentRows, err := db.Query(`
+SELECT account_name, database_name, container_name, id, partition_key, body_json, created_at, updated_at
+FROM cosmos_documents
+ORDER BY account_name, database_name, container_name, id`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read cosmos documents: %w", err)
+	}
+	defer cosmosDocumentRows.Close()
+
+	for cosmosDocumentRows.Next() {
+		document, err := scanCosmosDocument(cosmosDocumentRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.CosmosDocuments = append(doc.CosmosDocuments, document)
+	}
+	if err := cosmosDocumentRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate cosmos documents: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -4029,6 +4614,18 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.AppConfigValues == nil {
 		doc.AppConfigValues = []AppConfigValue{}
 	}
+	if doc.CosmosAccounts == nil {
+		doc.CosmosAccounts = []CosmosAccount{}
+	}
+	if doc.CosmosDatabases == nil {
+		doc.CosmosDatabases = []CosmosDatabase{}
+	}
+	if doc.CosmosContainers == nil {
+		doc.CosmosContainers = []CosmosContainer{}
+	}
+	if doc.CosmosDocuments == nil {
+		doc.CosmosDocuments = []CosmosDocument{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -4082,6 +4679,22 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM app_config_stores`); err != nil {
 		err = fmt.Errorf("clear app config stores: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM cosmos_documents`); err != nil {
+		err = fmt.Errorf("clear cosmos documents: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM cosmos_containers`); err != nil {
+		err = fmt.Errorf("clear cosmos containers: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM cosmos_databases`); err != nil {
+		err = fmt.Errorf("clear cosmos databases: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM cosmos_accounts`); err != nil {
+		err = fmt.Errorf("clear cosmos accounts: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_subscriptions`); err != nil {
@@ -4486,6 +5099,94 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, account := range doc.CosmosAccounts {
+		if account.CreatedAt == "" {
+			account.CreatedAt = doc.UpdatedAt
+		}
+		if account.UpdatedAt == "" {
+			account.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO cosmos_accounts (name, created_at, updated_at) VALUES (?, ?, ?)`,
+			account.Name,
+			account.CreatedAt,
+			account.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert cosmos account: %w", err)
+			return err
+		}
+	}
+	for _, database := range doc.CosmosDatabases {
+		if database.CreatedAt == "" {
+			database.CreatedAt = doc.UpdatedAt
+		}
+		if database.UpdatedAt == "" {
+			database.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO cosmos_databases (account_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			database.AccountName,
+			database.Name,
+			database.CreatedAt,
+			database.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert cosmos database: %w", err)
+			return err
+		}
+	}
+	for _, container := range doc.CosmosContainers {
+		if container.PartitionKeyPath == "" {
+			container.PartitionKeyPath = "/partitionKey"
+		}
+		if container.CreatedAt == "" {
+			container.CreatedAt = doc.UpdatedAt
+		}
+		if container.UpdatedAt == "" {
+			container.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO cosmos_containers (account_name, database_name, name, partition_key_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			container.AccountName,
+			container.DatabaseName,
+			container.Name,
+			container.PartitionKeyPath,
+			container.CreatedAt,
+			container.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert cosmos container: %w", err)
+			return err
+		}
+	}
+	for _, document := range doc.CosmosDocuments {
+		if document.Body == nil {
+			document.Body = map[string]any{}
+		}
+		if document.CreatedAt == "" {
+			document.CreatedAt = doc.UpdatedAt
+		}
+		if document.UpdatedAt == "" {
+			document.UpdatedAt = doc.UpdatedAt
+		}
+		bodyJSON, marshalErr := json.Marshal(document.Body)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal cosmos document body: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO cosmos_documents (account_name, database_name, container_name, id, partition_key, body_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			document.AccountName,
+			document.DatabaseName,
+			document.ContainerName,
+			document.ID,
+			document.PartitionKey,
+			string(bodyJSON),
+			document.CreatedAt,
+			document.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert cosmos document: %w", err)
+			return err
+		}
+	}
 	for _, account := range doc.StorageAccounts {
 		if account.Kind == "" {
 			account.Kind = "StorageV2"
@@ -4673,6 +5374,10 @@ func newDocument() Document {
 		ServiceBusSubscriptionMessages: []ServiceBusSubscriptionMessage{},
 		AppConfigStores:                []AppConfigStore{},
 		AppConfigValues:                []AppConfigValue{},
+		CosmosAccounts:                 []CosmosAccount{},
+		CosmosDatabases:                []CosmosDatabase{},
+		CosmosContainers:               []CosmosContainer{},
+		CosmosDocuments:                []CosmosDocument{},
 		StorageAccounts:                []StorageAccount{},
 		KeyVaults:                      []KeyVault{},
 		KeyVaultSecrets:                []KeyVaultSecret{},
@@ -4790,6 +5495,42 @@ func scanTableEntity(scanner interface {
 		entity.Properties = map[string]any{}
 	}
 	return entity, nil
+}
+
+func (s *Store) getCosmosDocumentLocked(db *sql.DB, accountName, databaseName, containerName, id string) (CosmosDocument, error) {
+	row := db.QueryRow(`
+SELECT account_name, database_name, container_name, id, partition_key, body_json, created_at, updated_at
+FROM cosmos_documents
+WHERE account_name = ? AND database_name = ? AND container_name = ? AND id = ?`,
+		accountName, databaseName, containerName, id,
+	)
+	return scanCosmosDocument(row)
+}
+
+func scanCosmosDocument(scanner interface {
+	Scan(dest ...any) error
+}) (CosmosDocument, error) {
+	var document CosmosDocument
+	var bodyJSON string
+	if err := scanner.Scan(
+		&document.AccountName,
+		&document.DatabaseName,
+		&document.ContainerName,
+		&document.ID,
+		&document.PartitionKey,
+		&bodyJSON,
+		&document.CreatedAt,
+		&document.UpdatedAt,
+	); err != nil {
+		return CosmosDocument{}, err
+	}
+	if err := json.Unmarshal([]byte(bodyJSON), &document.Body); err != nil {
+		return CosmosDocument{}, fmt.Errorf("parse cosmos document body: %w", err)
+	}
+	if document.Body == nil {
+		document.Body = map[string]any{}
+	}
+	return document, nil
 }
 
 func (s *Store) getKeyVaultLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (KeyVault, error) {

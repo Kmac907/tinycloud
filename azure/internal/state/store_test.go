@@ -1073,6 +1073,126 @@ func TestSnapshotAndRestorePreserveAppConfigState(t *testing.T) {
 	}
 }
 
+func TestCosmosCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	account, created, err := store.CreateCosmosAccount("local-cosmos")
+	if err != nil {
+		t.Fatalf("CreateCosmosAccount() error = %v", err)
+	}
+	if !created || account.Name != "local-cosmos" {
+		t.Fatalf("CreateCosmosAccount() = %#v, %t", account, created)
+	}
+
+	database, created, err := store.CreateCosmosDatabase("local-cosmos", "appdb")
+	if err != nil {
+		t.Fatalf("CreateCosmosDatabase() error = %v", err)
+	}
+	if !created || database.Name != "appdb" {
+		t.Fatalf("CreateCosmosDatabase() = %#v, %t", database, created)
+	}
+
+	container, created, err := store.CreateCosmosContainer("local-cosmos", "appdb", "customers", "/tenantId")
+	if err != nil {
+		t.Fatalf("CreateCosmosContainer() error = %v", err)
+	}
+	if !created || container.PartitionKeyPath != "/tenantId" {
+		t.Fatalf("CreateCosmosContainer() = %#v, %t", container, created)
+	}
+
+	document, err := store.UpsertCosmosDocument("local-cosmos", "appdb", "customers", "cust-001", "tenant-a", map[string]any{
+		"id":       "cust-001",
+		"tenantId": "tenant-a",
+		"name":     "Tiny Cloud",
+	})
+	if err != nil {
+		t.Fatalf("UpsertCosmosDocument() error = %v", err)
+	}
+	if document.PartitionKey != "tenant-a" {
+		t.Fatalf("PartitionKey = %q, want %q", document.PartitionKey, "tenant-a")
+	}
+
+	got, err := store.GetCosmosDocument("local-cosmos", "appdb", "customers", "cust-001")
+	if err != nil {
+		t.Fatalf("GetCosmosDocument() error = %v", err)
+	}
+	if got.Body["name"] != "Tiny Cloud" {
+		t.Fatalf("name = %v, want %q", got.Body["name"], "Tiny Cloud")
+	}
+
+	documents, err := store.ListCosmosDocuments("local-cosmos", "appdb", "customers")
+	if err != nil {
+		t.Fatalf("ListCosmosDocuments() error = %v", err)
+	}
+	if len(documents) != 1 {
+		t.Fatalf("len(documents) = %d, want %d", len(documents), 1)
+	}
+
+	if err := store.DeleteCosmosDocument("local-cosmos", "appdb", "customers", "cust-001"); err != nil {
+		t.Fatalf("DeleteCosmosDocument() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreserveCosmosState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateCosmosAccount("local-cosmos"); err != nil {
+		t.Fatalf("CreateCosmosAccount() error = %v", err)
+	}
+	if _, _, err := store.CreateCosmosDatabase("local-cosmos", "appdb"); err != nil {
+		t.Fatalf("CreateCosmosDatabase() error = %v", err)
+	}
+	if _, _, err := store.CreateCosmosContainer("local-cosmos", "appdb", "customers", "/tenantId"); err != nil {
+		t.Fatalf("CreateCosmosContainer() error = %v", err)
+	}
+	if _, err := store.UpsertCosmosDocument("local-cosmos", "appdb", "customers", "cust-001", "tenant-a", map[string]any{
+		"id":       "cust-001",
+		"tenantId": "tenant-a",
+		"name":     "Tiny Cloud",
+	}); err != nil {
+		t.Fatalf("UpsertCosmosDocument() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "cosmos.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	document, err := restoreStore.GetCosmosDocument("local-cosmos", "appdb", "customers", "cust-001")
+	if err != nil {
+		t.Fatalf("GetCosmosDocument() error = %v", err)
+	}
+	if document.Body["name"] != "Tiny Cloud" {
+		t.Fatalf("name = %v, want %q", document.Body["name"], "Tiny Cloud")
+	}
+}
+
 func TestKeyVaultCRUD(t *testing.T) {
 	t.Parallel()
 
