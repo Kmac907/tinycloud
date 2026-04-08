@@ -62,6 +62,9 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Services["cosmos"] != cfg.CosmosURL() {
 		t.Fatalf("services.cosmos = %q, want %q", body.Services["cosmos"], cfg.CosmosURL())
 	}
+	if body.Services["dns"] != cfg.DNSURL() {
+		t.Fatalf("services.dns = %q, want %q", body.Services["dns"], cfg.DNSURL())
+	}
 	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
 		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)
 	}
@@ -74,9 +77,12 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Suffixes["cosmos"] != cfg.AdvertiseHost+":"+cfg.Cosmos {
 		t.Fatalf("suffixes.cosmos = %q, want %q", body.Suffixes["cosmos"], cfg.AdvertiseHost+":"+cfg.Cosmos)
 	}
+	if body.Suffixes["dns"] != cfg.DNSAddress() {
+		t.Fatalf("suffixes.dns = %q, want %q", body.Suffixes["dns"], cfg.DNSAddress())
+	}
 	providers, _ := body.ResourceMgr["providers"].([]any)
-	if len(providers) != 3 {
-		t.Fatalf("len(resourceManager.providers) = %d, want %d", len(providers), 3)
+	if len(providers) != 4 {
+		t.Fatalf("len(resourceManager.providers) = %d, want %d", len(providers), 4)
 	}
 	if body.ResourceMgr["resourceManagerEndpointUrl"] != cfg.ManagementHTTPURL() {
 		t.Fatalf("resourceManager.resourceManagerEndpointUrl = %v, want %q", body.ResourceMgr["resourceManagerEndpointUrl"], cfg.ManagementHTTPURL())

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -342,6 +343,7 @@ var defaultProviders = []string{
 	"Microsoft.Resources",
 	"Microsoft.Storage",
 	"Microsoft.KeyVault",
+	"Microsoft.Network",
 }
 
 func NewStore(root string) (*Store, error) {
@@ -3322,7 +3324,11 @@ SELECT EXISTS(
 		if address == "" {
 			continue
 		}
-		addresses = append(addresses, address)
+		ip := net.ParseIP(address).To4()
+		if ip == nil {
+			return PrivateDNSARecordSet{}, fmt.Errorf("private dns A record set requires valid ipv4 addresses")
+		}
+		addresses = append(addresses, ip.String())
 	}
 	if len(addresses) == 0 {
 		return PrivateDNSARecordSet{}, fmt.Errorf("private dns A record set requires at least one ipv4 address")
@@ -3445,6 +3451,33 @@ WHERE subscription_id = ? AND resource_group_name = ? AND zone_name = ? AND rela
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *Store) ResolvePrivateDNSARecordSet(fqdn string) (PrivateDNSARecordSet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return PrivateDNSARecordSet{}, err
+	}
+
+	fqdn = normalizeDNSZoneName(fqdn)
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, zone_name, relative_name, ttl, ipv4_addresses_json, provisioning_state, created_at, updated_at
+FROM private_dns_a_record_sets
+WHERE CASE
+    WHEN relative_name = '@' THEN zone_name
+    ELSE relative_name || '.' || zone_name
+END = ?
+ORDER BY LENGTH(zone_name) DESC
+LIMIT 1`, fqdn)
+	return scanPrivateDNSARecordSet(row)
 }
 
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {

@@ -27,6 +27,7 @@ func TestRunEnvTerraformIncludesARMAndBlobSettings(t *testing.T) {
 		"TINY_BLOB_ENDPOINT=" + cfg.BlobURL(),
 		"TINY_APPCONFIG_ENDPOINT=" + cfg.AppConfigURL(),
 		"TINY_COSMOS_ENDPOINT=" + cfg.CosmosURL(),
+		"TINY_DNS_SERVER=" + cfg.DNSAddress(),
 		"TINY_OAUTH_TOKEN=" + cfg.OAuthTokenURL(),
 	} {
 		if !strings.Contains(output, fragment) {
@@ -54,6 +55,7 @@ func TestRunEnvPulumiIncludesARMAndBlobSettings(t *testing.T) {
 		"AZURE_STORAGE_ENDPOINT=" + cfg.BlobURL(),
 		"AZURE_APPCONFIG_ENDPOINT=" + cfg.AppConfigURL(),
 		"AZURE_COSMOS_ENDPOINT=" + cfg.CosmosURL(),
+		"AZURE_PRIVATE_DNS_SERVER=" + cfg.DNSAddress(),
 		"AZURE_OAUTH_TOKEN_URL=" + cfg.OAuthTokenURL(),
 	} {
 		if !strings.Contains(output, fragment) {

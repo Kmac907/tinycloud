@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"tinycloud/internal/metadata"
 	"tinycloud/internal/providers/appconfig"
 	"tinycloud/internal/providers/cosmos"
+	"tinycloud/internal/providers/dns"
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
 	"tinycloud/internal/providers/servicebus"
@@ -128,6 +130,8 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	dnsServer := dns.NewServer(s.store, s.cfg, s.logger)
+
 	s.logger.Info("tinycloud server starting", map[string]any{
 		"addr":           s.cfg.ManagementAddr(),
 		"blobAddr":       s.cfg.ListenHost + ":" + s.cfg.Blob,
@@ -137,10 +141,11 @@ func (s *Server) Run(ctx context.Context) error {
 		"keyVaultAddr":   s.cfg.ListenHost + ":" + s.cfg.KeyVault,
 		"appConfigAddr":  s.cfg.ListenHost + ":" + s.cfg.AppConfig,
 		"cosmosAddr":     s.cfg.ListenHost + ":" + s.cfg.Cosmos,
+		"dnsAddr":        s.cfg.ListenHost + ":" + s.cfg.DNS,
 		"dataRoot":       s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 8)
+	errCh := make(chan error, 9)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -165,6 +170,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		errCh <- cosmosServer.ListenAndServe()
 	}()
+	go func() {
+		errCh <- dnsServer.ListenAndServe()
+	}()
 
 	select {
 	case <-ctx.Done():
@@ -178,6 +186,9 @@ func (s *Server) Run(ctx context.Context) error {
 			return err
 		}
 		if err := cosmosServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if err := dnsServer.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			return err
 		}
 		if err := queueServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -199,6 +210,7 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = appConfigServer.Shutdown(shutdownCtx)
 		_ = cosmosServer.Shutdown(shutdownCtx)
+		_ = dnsServer.Close()
 		_ = queueServer.Shutdown(shutdownCtx)
 		_ = tableServer.Shutdown(shutdownCtx)
 		_ = serviceBusServer.Shutdown(shutdownCtx)

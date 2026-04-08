@@ -112,8 +112,8 @@ func TestListProvidersReturnsBootstrapProvider(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if len(body.Value) != 3 {
-		t.Fatalf("len(value) = %d, want %d", len(body.Value), 3)
+	if len(body.Value) != 4 {
+		t.Fatalf("len(value) = %d, want %d", len(body.Value), 4)
 	}
 }
 
@@ -404,6 +404,103 @@ func TestPutKeyVaultRequiresExistingResourceGroup(t *testing.T) {
 	NewHandler(store, config.FromEnv()).Register(mux)
 
 	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/missing/providers/Microsoft.KeyVault/vaults/vaultone?api-version=2024-01-01", strings.NewReader(`{"location":"westus2"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestPrivateDNSZoneAndRecordSetCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	createZoneReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01", strings.NewReader(`{"tags":{"env":"test"}}`))
+	createZoneRec := httptest.NewRecorder()
+	mux.ServeHTTP(createZoneRec, createZoneReq)
+	if createZoneRec.Code != http.StatusAccepted {
+		t.Fatalf("create zone status = %d, want %d", createZoneRec.Code, http.StatusAccepted)
+	}
+
+	listZoneReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones?api-version=2024-01-01", nil)
+	listZoneRec := httptest.NewRecorder()
+	mux.ServeHTTP(listZoneRec, listZoneReq)
+	if listZoneRec.Code != http.StatusOK {
+		t.Fatalf("list zone status = %d, want %d", listZoneRec.Code, http.StatusOK)
+	}
+
+	createRecordReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test/A/api?api-version=2024-01-01", strings.NewReader(`{"properties":{"TTL":60,"aRecords":[{"ipv4Address":"10.0.0.4"}]}}`))
+	createRecordRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRecordRec, createRecordReq)
+	if createRecordRec.Code != http.StatusAccepted {
+		t.Fatalf("create record status = %d, want %d", createRecordRec.Code, http.StatusAccepted)
+	}
+
+	var createdRecord map[string]any
+	if err := json.Unmarshal(createRecordRec.Body.Bytes(), &createdRecord); err != nil {
+		t.Fatalf("json.Unmarshal() create record error = %v", err)
+	}
+	properties, _ := createdRecord["properties"].(map[string]any)
+	if properties["fqdn"] != "api.internal.test." {
+		t.Fatalf("fqdn = %v, want %q", properties["fqdn"], "api.internal.test.")
+	}
+
+	getRecordReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test/A/api?api-version=2024-01-01", nil)
+	getRecordRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRecordRec, getRecordReq)
+	if getRecordRec.Code != http.StatusOK {
+		t.Fatalf("get record status = %d, want %d", getRecordRec.Code, http.StatusOK)
+	}
+
+	deleteRecordReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test/A/api?api-version=2024-01-01", nil)
+	deleteRecordRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteRecordRec, deleteRecordReq)
+	if deleteRecordRec.Code != http.StatusAccepted {
+		t.Fatalf("delete record status = %d, want %d", deleteRecordRec.Code, http.StatusAccepted)
+	}
+
+	deleteZoneReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01", nil)
+	deleteZoneRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteZoneRec, deleteZoneReq)
+	if deleteZoneRec.Code != http.StatusAccepted {
+		t.Fatalf("delete zone status = %d, want %d", deleteZoneRec.Code, http.StatusAccepted)
+	}
+}
+
+func TestPutPrivateDNSRecordRequiresExistingZone(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/privateDnsZones/internal.test/A/api?api-version=2024-01-01", strings.NewReader(`{"properties":{"TTL":60,"aRecords":[{"ipv4Address":"10.0.0.4"}]}}`))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

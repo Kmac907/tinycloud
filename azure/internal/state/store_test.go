@@ -38,8 +38,8 @@ func TestInitCreatesSQLiteDatabase(t *testing.T) {
 	if summary.SubscriptionCount != 1 {
 		t.Fatalf("Summary().SubscriptionCount = %d, want %d", summary.SubscriptionCount, 1)
 	}
-	if summary.ProviderCount != 3 {
-		t.Fatalf("Summary().ProviderCount = %d, want %d", summary.ProviderCount, 3)
+	if summary.ProviderCount != 4 {
+		t.Fatalf("Summary().ProviderCount = %d, want %d", summary.ProviderCount, 4)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestRestoreLoadsSnapshotIntoSQLite(t *testing.T) {
 	if summary.ResourceCount != 1 {
 		t.Fatalf("Summary().ResourceCount = %d, want %d", summary.ResourceCount, 1)
 	}
-	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 3 {
-		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 3)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 4 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 4)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 
 	exportPath := filepath.Join(root, "export.json")
@@ -148,8 +148,8 @@ func TestInitIsIdempotentForBootstrapRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Summary() error = %v", err)
 	}
-	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 3 {
-		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 3)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
+	if summary.TenantCount != 1 || summary.SubscriptionCount != 1 || summary.ProviderCount != 4 {
+		t.Fatalf("bootstrap counts = (%d, %d, %d), want (1, 1, 4)", summary.TenantCount, summary.SubscriptionCount, summary.ProviderCount)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestListBootstrapEntities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)
 	}
-	if len(providers) != 3 {
-		t.Fatalf("len(providers) = %d, want %d", len(providers), 3)
+	if len(providers) != 4 {
+		t.Fatalf("len(providers) = %d, want %d", len(providers), 4)
 	}
 }
 

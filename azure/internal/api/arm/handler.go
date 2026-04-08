@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 
 	"tinycloud/internal/config"
@@ -41,6 +43,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.putKeyVault)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.getKeyVault)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.deleteKeyVault)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones", h.listPrivateDNSZones)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.putPrivateDNSZone)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.getPrivateDNSZone)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.deletePrivateDNSZone)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}/A", h.listPrivateDNSARecordSets)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}/A/{relativeRecordSetName}", h.putPrivateDNSARecordSet)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}/A/{relativeRecordSetName}", h.getPrivateDNSARecordSet)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}/A/{relativeRecordSetName}", h.deletePrivateDNSARecordSet)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments", h.listDeployments)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.putDeployment)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.getDeployment)
@@ -508,6 +518,269 @@ func (h *Handler) deleteKeyVault(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+func (h *Handler) listPrivateDNSZones(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	zones, err := h.store.ListPrivateDNSZones(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(zones))
+	for _, zone := range zones {
+		value = append(value, h.privateDNSZoneResponse(zone))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putPrivateDNSZone(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Tags map[string]string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+
+	zone, err := h.store.UpsertPrivateDNSZone(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("zoneName"),
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		zone.ID,
+		"Microsoft.Network/privateDnsZones/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, h.privateDNSZoneResponse(zone))
+}
+
+func (h *Handler) getPrivateDNSZone(w http.ResponseWriter, r *http.Request) {
+	zone, err := h.store.GetPrivateDNSZone(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("zoneName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS zone was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, h.privateDNSZoneResponse(zone))
+}
+
+func (h *Handler) deletePrivateDNSZone(w http.ResponseWriter, r *http.Request) {
+	zone, err := h.store.GetPrivateDNSZone(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("zoneName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS zone was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeletePrivateDNSZone(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("zoneName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS zone was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		zone.ID,
+		"Microsoft.Network/privateDnsZones/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) listPrivateDNSARecordSets(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetPrivateDNSZone(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("zoneName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS zone was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	recordSets, err := h.store.ListPrivateDNSARecordSets(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("zoneName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(recordSets))
+	for _, recordSet := range recordSets {
+		value = append(value, h.privateDNSARecordSetResponse(recordSet))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putPrivateDNSARecordSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Properties struct {
+			TTL      int `json:"TTL"`
+			ARecords []struct {
+				IPv4Address string `json:"ipv4Address"`
+			} `json:"aRecords"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+
+	addresses := make([]string, 0, len(body.Properties.ARecords))
+	for _, record := range body.Properties.ARecords {
+		if record.IPv4Address != "" {
+			if net.ParseIP(record.IPv4Address).To4() == nil {
+				httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "private DNS A record set requires valid ipv4Address values")
+				return
+			}
+			addresses = append(addresses, record.IPv4Address)
+		}
+	}
+	if len(addresses) == 0 {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "private DNS A record set requires at least one ipv4Address")
+		return
+	}
+
+	recordSet, err := h.store.UpsertPrivateDNSARecordSet(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("zoneName"),
+		r.PathValue("relativeRecordSetName"),
+		body.Properties.TTL,
+		addresses,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS zone was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		recordSet.ID,
+		"Microsoft.Network/privateDnsZones/A/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, h.privateDNSARecordSetResponse(recordSet))
+}
+
+func (h *Handler) getPrivateDNSARecordSet(w http.ResponseWriter, r *http.Request) {
+	recordSet, err := h.store.GetPrivateDNSARecordSet(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("zoneName"),
+		r.PathValue("relativeRecordSetName"),
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS A record set was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, h.privateDNSARecordSetResponse(recordSet))
+}
+
+func (h *Handler) deletePrivateDNSARecordSet(w http.ResponseWriter, r *http.Request) {
+	recordSet, err := h.store.GetPrivateDNSARecordSet(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("zoneName"),
+		r.PathValue("relativeRecordSetName"),
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS A record set was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeletePrivateDNSARecordSet(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("zoneName"),
+		r.PathValue("relativeRecordSetName"),
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the private DNS A record set was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		recordSet.ID,
+		"Microsoft.Network/privateDnsZones/A/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
 		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
@@ -688,6 +961,38 @@ func (h *Handler) keyVaultResponse(vault state.KeyVault) map[string]any {
 	}
 }
 
+func (h *Handler) privateDNSZoneResponse(zone state.PrivateDNSZone) map[string]any {
+	return map[string]any{
+		"id":       zone.ID,
+		"name":     zone.Name,
+		"type":     "Microsoft.Network/privateDnsZones",
+		"location": "global",
+		"tags":     zone.Tags,
+		"properties": map[string]any{
+			"provisioningState": zone.ProvisioningState,
+			"fqdn":              zone.Name + ".",
+		},
+	}
+}
+
+func (h *Handler) privateDNSARecordSetResponse(recordSet state.PrivateDNSARecordSet) map[string]any {
+	aRecords := make([]map[string]string, 0, len(recordSet.IPv4Addresses))
+	for _, address := range recordSet.IPv4Addresses {
+		aRecords = append(aRecords, map[string]string{"ipv4Address": address})
+	}
+	return map[string]any{
+		"id":   recordSet.ID,
+		"name": recordSet.RelativeName,
+		"type": "Microsoft.Network/privateDnsZones/A",
+		"properties": map[string]any{
+			"fqdn":              privateDNSFQDN(recordSet.ZoneName, recordSet.RelativeName) + ".",
+			"TTL":               recordSet.TTL,
+			"aRecords":          aRecords,
+			"provisioningState": recordSet.ProvisioningState,
+		},
+	}
+}
+
 func deploymentResponse(deployment state.Deployment) map[string]any {
 	properties := map[string]any{
 		"mode":              deployment.Mode,
@@ -714,6 +1019,13 @@ func deploymentResponse(deployment state.Deployment) map[string]any {
 		"tags":       deployment.Tags,
 		"properties": properties,
 	}
+}
+
+func privateDNSFQDN(zoneName, relativeName string) string {
+	if relativeName == "" || relativeName == "@" {
+		return zoneName
+	}
+	return relativeName + "." + zoneName
 }
 
 func setAsyncHeaders(w http.ResponseWriter, operation state.Operation) {

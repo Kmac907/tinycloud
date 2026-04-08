@@ -11,14 +11,14 @@
   <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
 </p>
 
-<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, secrets, and messaging workflows.</sub></p>
+<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, secrets, and messaging workflows.</sub></p>
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
 - metadata, OAuth, and minimal IMDS-style managed identity endpoints
-- real Blob, Queue Storage, Table Storage, Cosmos DB, App Configuration, Key Vault secrets, and Service Bus behavior on dedicated service ports
+- real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, and Service Bus behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
 TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `13` implemented
+- `14` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -48,6 +48,7 @@ Current status across the listed emulator areas:
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
 | Cosmos DB | Implemented | Account, database, container, and document CRUD on the dedicated Cosmos listener |
+| Private DNS | Implemented | ARM zone/A-record CRUD plus a live UDP resolver for A-record lookups |
 | App Configuration | Implemented | Config store and key-value CRUD on the dedicated App Configuration listener |
 
 ### What Is Actually Emulated Today
@@ -60,6 +61,8 @@ Current status across the listed emulator areas:
   - resource group CRUD
   - storage account CRUD
   - Key Vault resource CRUD
+  - private DNS zone CRUD
+  - private DNS A-record CRUD
   - deployment record/status routes
   - async operation polling
 - Metadata and identity:
@@ -82,6 +85,10 @@ Current status across the listed emulator areas:
   - create/list databases
   - create/list containers
   - create/get/list/delete documents
+- Private DNS:
+  - private DNS zone CRUD through ARM
+  - private DNS A-record CRUD through ARM
+  - live UDP resolver for A-record lookups
 - Key Vault on its own port:
   - set/get/list/delete secrets
 - Service Bus on its own port:
@@ -114,6 +121,7 @@ All service listeners except the advertised HTTPS management port are active tod
 | `4581` | Active | Service Bus data-plane |
 | `4582` | Active | App Configuration data-plane |
 | `4583` | Active | Cosmos DB data-plane |
+| `4584/udp` | Active | private DNS resolver |
 
 ## How To Interact With The Emulated Azure Environment
 
@@ -270,7 +278,20 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts/local-cosmos/dbs/
 Invoke-RestMethod "http://127.0.0.1:4583/accounts/local-cosmos/dbs/appdb/colls/customers/docs/cust-001"
 ```
 
-### 9. Metadata And Identity
+### 9. Private DNS
+
+Private DNS uses ARM routes on the management endpoint plus a live UDP resolver on `127.0.0.1:4584`.
+
+Create a zone and A record:
+
+```powershell
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01" -Body '{"tags":{"env":"dev"}}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test/A/api?api-version=2024-01-01" -Body '{"properties":{"TTL":60,"aRecords":[{"ipv4Address":"10.0.0.4"}]}}' -ContentType "application/json"
+```
+
+Any DNS client that supports a custom resolver port can then query `api.internal.test` against `127.0.0.1:4584/udp`.
+
+### 10. Metadata And Identity
 
 Inspect local environment metadata:
 
@@ -286,7 +307,7 @@ Invoke-RestMethod `
   "http://127.0.0.1:4566/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
 ```
 
-### 10. Admin Runtime Endpoints
+### 11. Admin Runtime Endpoints
 
 These are TinyCloud-specific runtime controls, not Azure service APIs.
 
@@ -414,6 +435,7 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_SERVICEBUS_PORT` | `4581` | Service Bus listener |
 | `TINYCLOUD_APPCONFIG_PORT` | `4582` | App Configuration listener |
 | `TINYCLOUD_COSMOS_PORT` | `4583` | Cosmos DB listener |
+| `TINYCLOUD_DNS_PORT` | `4584` | private DNS UDP listener |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |
@@ -444,10 +466,12 @@ In another terminal:
 Invoke-RestMethod http://127.0.0.1:4566/metadata/endpoints
 Invoke-RestMethod http://127.0.0.1:4566/tenants?api-version=2024-01-01
 Invoke-RestMethod http://127.0.0.1:4566/subscriptions?api-version=2024-01-01
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local?api-version=2024-01-01" -Body '{"location":"westus2"}' -ContentType "application/json"
 Invoke-WebRequest -Method Put "http://127.0.0.1:4577/devstoreaccount1/docs?restype=container"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01" -Body '{}' -ContentType "application/json"
 ```
 
 ### Docker
@@ -463,6 +487,7 @@ docker run --rm `
   -p 4581:4581 `
   -p 4582:4582 `
   -p 4583:4583 `
+  -p 4584:4584/udp `
   -v "${PWD}\data:/var/lib/tinycloud" `
   tinycloud-azure
 ```
@@ -489,6 +514,7 @@ This is the practical comparison for current use, not a marketing claim. The poi
 
 - Deployment template execution is intentionally narrow; only a small static subset is implemented today
 - No management TLS listener yet, even though an HTTPS URL can be advertised
+- Private DNS uses UDP on a non-default port (`4584`) by default, so standard system DNS tools that assume port `53` need an explicit custom resolver configuration
 - Not a full Azure CLI or full SDK parity environment
 
 ## Examples
