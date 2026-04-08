@@ -56,11 +56,17 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Services["blob"] != cfg.BlobURL() {
 		t.Fatalf("services.blob = %q, want %q", body.Services["blob"], cfg.BlobURL())
 	}
+	if body.Services["appConfig"] != cfg.AppConfigURL() {
+		t.Fatalf("services.appConfig = %q, want %q", body.Services["appConfig"], cfg.AppConfigURL())
+	}
 	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
 		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)
 	}
 	if body.Suffixes["storage"] != cfg.AdvertiseHost+":"+cfg.Blob {
 		t.Fatalf("suffixes.storage = %q, want %q", body.Suffixes["storage"], cfg.AdvertiseHost+":"+cfg.Blob)
+	}
+	if body.Suffixes["appConfig"] != cfg.AdvertiseHost+":"+cfg.AppConfig {
+		t.Fatalf("suffixes.appConfig = %q, want %q", body.Suffixes["appConfig"], cfg.AdvertiseHost+":"+cfg.AppConfig)
 	}
 	providers, _ := body.ResourceMgr["providers"].([]any)
 	if len(providers) != 3 {

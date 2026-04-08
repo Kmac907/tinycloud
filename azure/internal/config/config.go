@@ -16,6 +16,7 @@ type Config struct {
 	Table          string
 	KeyVault       string
 	ServiceBus     string
+	AppConfig      string
 	DataRoot       string
 	TenantID       string
 	SubscriptionID string
@@ -42,6 +43,7 @@ func FromEnv() Config {
 		Table:          envOrDefault("TINYCLOUD_TABLE_PORT", "4579"),
 		KeyVault:       envOrDefault("TINYCLOUD_KEYVAULT_PORT", "4580"),
 		ServiceBus:     envOrDefault("TINYCLOUD_SERVICEBUS_PORT", "4581"),
+		AppConfig:      envOrDefault("TINYCLOUD_APPCONFIG_PORT", "4582"),
 		DataRoot:       envOrDefault("TINYCLOUD_DATA_ROOT", defaultDataRoot()),
 		TenantID:       envOrDefault("TINYCLOUD_TENANT_ID", defaultTenantID()),
 		SubscriptionID: envOrDefault("TINYCLOUD_SUBSCRIPTION_ID", defaultSubscriptionID()),
@@ -88,6 +90,10 @@ func (c Config) ServiceBusURL() string {
 	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.ServiceBus)
 }
 
+func (c Config) AppConfigURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.AppConfig)
+}
+
 func (c Config) OAuthTokenURL() string {
 	return fmt.Sprintf("%s/oauth/token", c.ManagementHTTPURL())
 }
@@ -118,6 +124,7 @@ func (c Config) EndpointMap() map[string]string {
 		"table":           c.TableURL(),
 		"keyVault":        c.KeyVaultURL(),
 		"serviceBus":      c.ServiceBusURL(),
+		"appConfig":       c.AppConfigURL(),
 	}
 }
 

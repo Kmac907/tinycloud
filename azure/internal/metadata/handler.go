@@ -53,8 +53,9 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"providers":                  []string{"Microsoft.Resources", "Microsoft.Storage", "Microsoft.KeyVault"},
 		},
 		"suffixes": map[string]string{
-			"storage":  h.cfg.AdvertiseHost + ":" + h.cfg.Blob,
-			"keyVault": h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault,
+			"storage":   h.cfg.AdvertiseHost + ":" + h.cfg.Blob,
+			"keyVault":  h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault,
+			"appConfig": h.cfg.AdvertiseHost + ":" + h.cfg.AppConfig,
 		},
 		"services": map[string]string{
 			"blob":       h.cfg.BlobURL(),
@@ -62,6 +63,7 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"table":      h.cfg.TableURL(),
 			"keyVault":   h.cfg.KeyVaultURL(),
 			"serviceBus": h.cfg.ServiceBusURL(),
+			"appConfig":  h.cfg.AppConfigURL(),
 		},
 	})
 }

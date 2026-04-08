@@ -13,6 +13,7 @@ import (
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/identity"
 	"tinycloud/internal/metadata"
+	"tinycloud/internal/providers/appconfig"
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
 	"tinycloud/internal/providers/servicebus"
@@ -110,17 +111,26 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	appConfigMux := http.NewServeMux()
+	appconfig.NewHandler(s.store, s.cfg).Register(appConfigMux)
+	appConfigServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.AppConfig,
+		Handler:           chain(appConfigMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	s.logger.Info("tinycloud server starting", map[string]any{
-		"addr":         s.cfg.ManagementAddr(),
-		"blobAddr":     s.cfg.ListenHost + ":" + s.cfg.Blob,
-		"queueAddr":    s.cfg.ListenHost + ":" + s.cfg.Queue,
-		"tableAddr":    s.cfg.ListenHost + ":" + s.cfg.Table,
+		"addr":           s.cfg.ManagementAddr(),
+		"blobAddr":       s.cfg.ListenHost + ":" + s.cfg.Blob,
+		"queueAddr":      s.cfg.ListenHost + ":" + s.cfg.Queue,
+		"tableAddr":      s.cfg.ListenHost + ":" + s.cfg.Table,
 		"serviceBusAddr": s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
-		"keyVaultAddr": s.cfg.ListenHost + ":" + s.cfg.KeyVault,
-		"dataRoot":     s.cfg.DataRoot,
+		"keyVaultAddr":   s.cfg.ListenHost + ":" + s.cfg.KeyVault,
+		"appConfigAddr":  s.cfg.ListenHost + ":" + s.cfg.AppConfig,
+		"dataRoot":       s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 6)
+	errCh := make(chan error, 7)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -139,6 +149,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		errCh <- keyVaultServer.ListenAndServe()
 	}()
+	go func() {
+		errCh <- appConfigServer.ListenAndServe()
+	}()
 
 	select {
 	case <-ctx.Done():
@@ -146,6 +159,9 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		s.logger.Info("tinycloud server stopping", nil)
 		if err := keyVaultServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if err := appConfigServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		if err := queueServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -165,6 +181,7 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = keyVaultServer.Shutdown(shutdownCtx)
+		_ = appConfigServer.Shutdown(shutdownCtx)
 		_ = queueServer.Shutdown(shutdownCtx)
 		_ = tableServer.Shutdown(shutdownCtx)
 		_ = serviceBusServer.Shutdown(shutdownCtx)

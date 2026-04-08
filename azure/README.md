@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `11` implemented
+- `12` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -47,6 +47,7 @@ Current status across the listed emulator areas:
 | Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
+| App Configuration | Implemented | Config store and key-value CRUD on the dedicated App Configuration listener |
 
 ### What Is Actually Emulated Today
 
@@ -82,6 +83,9 @@ Current status across the listed emulator areas:
   - send/receive/delete queue messages
   - create/list topics and subscriptions
   - publish/receive/delete topic subscription messages
+- App Configuration on its own port:
+  - create/list config stores
+  - put/get/list/delete key-values
 - Admin/runtime:
   - `/_admin/healthz`
   - `/_admin/metrics`
@@ -102,6 +106,7 @@ All service listeners except the advertised HTTPS management port are active tod
 | `4579` | Active | Table Storage data-plane |
 | `4580` | Active | Key Vault secrets data-plane |
 | `4581` | Active | Service Bus data-plane |
+| `4582` | Active | App Configuration data-plane |
 
 ## How To Interact With The Emulated Azure Environment
 
@@ -232,7 +237,19 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging
 Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/topics/events/subscriptions/worker-a/messages/receive?maxMessages=1&visibilityTimeout=30"
 ```
 
-### 7. Metadata And Identity
+### 7. App Configuration Data-Plane
+
+App Configuration runs on `http://127.0.0.1:4582`.
+
+Create a config store and manage a key-value:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4582/stores/tiny-settings/kv/FeatureX:Enabled?label=prod" -Body '{"value":"true","contentType":"text/plain"}' -ContentType "application/json"
+Invoke-RestMethod "http://127.0.0.1:4582/stores/tiny-settings/kv/FeatureX:Enabled?label=prod"
+```
+
+### 8. Metadata And Identity
 
 Inspect local environment metadata:
 
@@ -248,7 +265,7 @@ Invoke-RestMethod `
   "http://127.0.0.1:4566/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
 ```
 
-### 8. Admin Runtime Endpoints
+### 9. Admin Runtime Endpoints
 
 These are TinyCloud-specific runtime controls, not Azure service APIs.
 
@@ -374,6 +391,7 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_TABLE_PORT` | `4579` | Table Storage listener |
 | `TINYCLOUD_KEYVAULT_PORT` | `4580` | Key Vault listener |
 | `TINYCLOUD_SERVICEBUS_PORT` | `4581` | Service Bus listener |
+| `TINYCLOUD_APPCONFIG_PORT` | `4582` | App Configuration listener |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |
@@ -406,6 +424,7 @@ Invoke-RestMethod http://127.0.0.1:4566/tenants?api-version=2024-01-01
 Invoke-RestMethod http://127.0.0.1:4566/subscriptions?api-version=2024-01-01
 Invoke-WebRequest -Method Put "http://127.0.0.1:4577/devstoreaccount1/docs?restype=container"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
 ```
 
 ### Docker
@@ -419,6 +438,7 @@ docker run --rm `
   -p 4579:4579 `
   -p 4580:4580 `
   -p 4581:4581 `
+  -p 4582:4582 `
   -v "${PWD}\data:/var/lib/tinycloud" `
   tinycloud-azure
 ```

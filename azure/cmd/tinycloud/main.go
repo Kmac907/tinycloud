@@ -123,6 +123,7 @@ func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
 			fmt.Sprintf("ARM_SUBSCRIPTION_ID=%s", cfg.SubscriptionID),
 			fmt.Sprintf("ARM_TENANT_ID=%s", cfg.TenantID),
 			fmt.Sprintf("TINY_BLOB_ENDPOINT=%s", cfg.BlobURL()),
+			fmt.Sprintf("TINY_APPCONFIG_ENDPOINT=%s", cfg.AppConfigURL()),
 			fmt.Sprintf("TINY_OAUTH_TOKEN=%s", cfg.OAuthTokenURL()),
 		}
 		_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))
@@ -134,6 +135,7 @@ func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
 			fmt.Sprintf("ARM_SUBSCRIPTION_ID=%s", cfg.SubscriptionID),
 			fmt.Sprintf("ARM_TENANT_ID=%s", cfg.TenantID),
 			fmt.Sprintf("AZURE_STORAGE_ENDPOINT=%s", cfg.BlobURL()),
+			fmt.Sprintf("AZURE_APPCONFIG_ENDPOINT=%s", cfg.AppConfigURL()),
 			fmt.Sprintf("AZURE_OAUTH_TOKEN_URL=%s", cfg.OAuthTokenURL()),
 		}
 		_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))
