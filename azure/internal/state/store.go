@@ -2173,6 +2173,17 @@ func (s *Store) PublishServiceBusTopicMessage(namespaceName, topicName, body str
 		return ServiceBusSubscriptionMessage{}, err
 	}
 
+	var topicExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_topics WHERE namespace_name = ? AND name = ?
+)`, namespaceName, topicName).Scan(&topicExists); err != nil {
+		return ServiceBusSubscriptionMessage{}, fmt.Errorf("query service bus topic: %w", err)
+	}
+	if !topicExists {
+		return ServiceBusSubscriptionMessage{}, sql.ErrNoRows
+	}
+
 	rows, err := db.Query(`
 SELECT name
 FROM service_bus_subscriptions
@@ -2194,12 +2205,19 @@ ORDER BY name`, namespaceName, topicName)
 	if err := rows.Err(); err != nil {
 		return ServiceBusSubscriptionMessage{}, fmt.Errorf("iterate service bus subscriptions: %w", err)
 	}
-	if len(subscriptions) == 0 {
-		return ServiceBusSubscriptionMessage{}, sql.ErrNoRows
-	}
 
 	nowValue := now()
 	messageID := fmt.Sprintf("sbtopicmsg-%d", time.Now().UTC().UnixNano())
+	if len(subscriptions) == 0 {
+		return ServiceBusSubscriptionMessage{
+			Namespace: namespaceName,
+			TopicName: topicName,
+			ID:        messageID,
+			Body:      body,
+			CreatedAt: nowValue,
+			UpdatedAt: nowValue,
+		}, nil
+	}
 	first := ServiceBusSubscriptionMessage{}
 	for i, subscriptionName := range subscriptions {
 		lockToken := fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano()+int64(i))

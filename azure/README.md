@@ -7,18 +7,18 @@
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Single Container" /></a>
-  <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Blob-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM and Blob" /></a>
+  <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Storage%20%2B%20Secrets%20%2B%20Messaging-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM Storage Secrets and Messaging" /></a>
   <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
 </p>
 
-<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, and Blob workflows.</sub></p>
+<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, secrets, and messaging workflows.</sub></p>
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
 - metadata, OAuth, and minimal IMDS-style managed identity endpoints
-- real Blob Storage container and blob behavior on a dedicated service port
+- real Blob, Queue Storage, Table Storage, Key Vault secrets, and Service Bus behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
 TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
@@ -27,9 +27,9 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `8` implemented
+- `11` implemented
 - `1` partial
-- `3` not implemented yet
+- `0` not implemented yet
 
 ### Support Levels
 
@@ -38,15 +38,15 @@ Current status across the listed emulator areas:
 | ARM tenants/subscriptions/providers | Implemented | Includes provider registration records and tenant listing |
 | ARM resource groups | Implemented | CRUD with Azure-style shapes and async headers |
 | ARM storage accounts | Implemented | CRUD with Blob endpoint advertisement |
-| ARM Key Vault resources | Implemented | CRUD for `Microsoft.KeyVault/vaults`; no secrets data-plane yet |
+| ARM Key Vault resources | Implemented | CRUD for `Microsoft.KeyVault/vaults` |
 | ARM deployments | Partial | Deployment records and async failure/status are implemented; template execution is not |
 | Blob data-plane | Implemented | Containers, upload/download/list/delete, `HEAD`, compatibility headers |
 | Managed identity and token endpoints | Implemented | Minimal IMDS-style behavior and signed local JWTs |
 | Admin/runtime endpoints | Implemented | Health, metrics, reset, snapshot, seed |
-| Key Vault secrets data-plane | Not implemented | ARM resource exists, secrets API does not |
-| Service Bus | Not implemented | No ARM or queue/message data-plane yet |
-| Queue Storage | Not implemented | Port reserved only |
-| Table Storage | Not implemented | Port reserved only |
+| Key Vault secrets data-plane | Implemented | Secret set/get/list/delete on the dedicated Key Vault listener |
+| Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
+| Queue Storage | Implemented | Queue create/list and message send/receive/delete |
+| Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
 
 ### What Is Actually Emulated Today
 
@@ -69,6 +69,19 @@ Current status across the listed emulator areas:
   - create/list containers
   - upload/download/list/delete blobs
   - `HEAD` blob metadata
+- Queue Storage on its own port:
+  - create/list queues
+  - send/receive/delete messages
+- Table Storage on its own port:
+  - create/list/delete tables
+  - upsert/get/list/delete entities
+- Key Vault on its own port:
+  - set/get/list/delete secrets
+- Service Bus on its own port:
+  - create/list namespaces and queues
+  - send/receive/delete queue messages
+  - create/list topics and subscriptions
+  - publish/receive/delete topic subscription messages
 - Admin/runtime:
   - `/_admin/healthz`
   - `/_admin/metrics`
@@ -78,17 +91,17 @@ Current status across the listed emulator areas:
 
 ## Ports
 
-Only two listeners are active today. The remaining service ports are reserved in config for future providers.
+All service listeners except the advertised HTTPS management port are active today.
 
 | Port | Status | Purpose |
 | --- | --- | --- |
 | `4566` | Active | management endpoint: ARM, metadata, identity, OAuth, admin |
 | `4567` | Reserved | management HTTPS URL is advertised/configurable, but no TLS listener is started yet |
 | `4577` | Active | Blob data-plane |
-| `4578` | Reserved | Queue Storage placeholder |
-| `4579` | Reserved | Table Storage placeholder |
-| `4580` | Reserved | Key Vault data-plane placeholder |
-| `4581` | Reserved | Service Bus placeholder |
+| `4578` | Active | Queue Storage data-plane |
+| `4579` | Active | Table Storage data-plane |
+| `4580` | Active | Key Vault secrets data-plane |
+| `4581` | Active | Service Bus data-plane |
 
 ## How To Interact With The Emulated Azure Environment
 
@@ -153,7 +166,73 @@ Invoke-WebRequest `
   -OutFile ".\downloaded-sample.pdf"
 ```
 
-### 3. Metadata And Identity
+### 3. Queue Storage Data-Plane
+
+Queue Storage runs on `http://127.0.0.1:4578`.
+
+Create a queue:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4578/storelocal/queues" -Body '{"name":"jobs"}' -ContentType "application/json"
+```
+
+Send and receive a message:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4578/storelocal/queues/jobs/messages" -Body '{"messageText":"run-report"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4578/storelocal/queues/jobs/messages/receive?maxMessages=1&visibilityTimeout=30"
+```
+
+### 4. Table Storage Data-Plane
+
+Table Storage runs on `http://127.0.0.1:4579`.
+
+Create a table and upsert an entity:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4579/storelocal/Tables" -Body '{"name":"customers"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4579/storelocal/customers" -Body '{"partitionKey":"retail","rowKey":"cust-001","properties":{"Name":"Tiny Cloud"}}' -ContentType "application/json"
+```
+
+### 5. Key Vault Secrets Data-Plane
+
+Key Vault secrets run on `http://127.0.0.1:4580`.
+
+Set and read a secret:
+
+```powershell
+Invoke-RestMethod -Method Put "http://127.0.0.1:4580/vaultlocal/secrets/app-secret" -Body '{"value":"super-secret-value","contentType":"text/plain"}' -ContentType "application/json"
+Invoke-RestMethod "http://127.0.0.1:4580/vaultlocal/secrets/app-secret"
+```
+
+### 6. Service Bus Data-Plane
+
+Service Bus runs on `http://127.0.0.1:4581`.
+
+Create a namespace, queue, topic, and subscription:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/queues" -Body '{"name":"jobs"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/topics" -Body '{"name":"events"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/topics/events/subscriptions" -Body '{"name":"worker-a"}' -ContentType "application/json"
+```
+
+Send/receive queue messages:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/queues/jobs/messages" -Body '{"body":"{\"job\":\"sync\"}"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/queues/jobs/messages/receive?maxMessages=1&visibilityTimeout=30"
+```
+
+Publish/receive topic messages:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/topics/events/messages" -Body '{"body":"{\"event\":\"created\"}"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces/local-messaging/topics/events/subscriptions/worker-a/messages/receive?maxMessages=1&visibilityTimeout=30"
+```
+
+### 7. Metadata And Identity
 
 Inspect local environment metadata:
 
@@ -169,7 +248,7 @@ Invoke-RestMethod `
   "http://127.0.0.1:4566/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
 ```
 
-### 4. Admin Runtime Endpoints
+### 8. Admin Runtime Endpoints
 
 These are TinyCloud-specific runtime controls, not Azure service APIs.
 
@@ -291,10 +370,10 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_MGMT_HTTP_PORT` | `4566` | management listener |
 | `TINYCLOUD_MGMT_HTTPS_PORT` | `4567` | advertised HTTPS management port |
 | `TINYCLOUD_BLOB_PORT` | `4577` | Blob listener |
-| `TINYCLOUD_QUEUE_PORT` | `4578` | reserved Queue Storage port |
-| `TINYCLOUD_TABLE_PORT` | `4579` | reserved Table Storage port |
-| `TINYCLOUD_KEYVAULT_PORT` | `4580` | reserved Key Vault port |
-| `TINYCLOUD_SERVICEBUS_PORT` | `4581` | reserved Service Bus port |
+| `TINYCLOUD_QUEUE_PORT` | `4578` | Queue Storage listener |
+| `TINYCLOUD_TABLE_PORT` | `4579` | Table Storage listener |
+| `TINYCLOUD_KEYVAULT_PORT` | `4580` | Key Vault listener |
+| `TINYCLOUD_SERVICEBUS_PORT` | `4581` | Service Bus listener |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |
@@ -326,6 +405,7 @@ Invoke-RestMethod http://127.0.0.1:4566/metadata/endpoints
 Invoke-RestMethod http://127.0.0.1:4566/tenants?api-version=2024-01-01
 Invoke-RestMethod http://127.0.0.1:4566/subscriptions?api-version=2024-01-01
 Invoke-WebRequest -Method Put "http://127.0.0.1:4577/devstoreaccount1/docs?restype=container"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
 ```
 
 ### Docker
@@ -349,7 +429,7 @@ This is the practical comparison for current use, not a marketing claim. The poi
 
 | Tool | Cloud focus | Product shape | Strength | Tradeoff | Best fit |
 | --- | --- | --- | --- | --- | --- |
-| TinyCloud | Azure | focused local cloud emulator | combines ARM-style control plane, identity metadata, and real Blob behavior in one small runtime | Azure coverage is still intentionally narrow | testing Azure workflows that need ARM plus at least one real data-plane service |
+| TinyCloud | Azure | focused local cloud emulator | combines ARM-style control plane, identity metadata, storage, secrets, and messaging in one small runtime | Azure coverage is still intentionally narrow | testing Azure workflows that need ARM plus several real data-plane services |
 | Azurite | Azure Storage | storage emulator | mature Blob/Queue/Table emulation from Microsoft | no ARM, no identity, no broader Azure control plane | storage-only local development |
 | LocalStack | AWS | broad local cloud platform | large AWS surface area and established local-cloud workflow patterns | AWS-focused rather than Azure-focused | teams standardizing on AWS local emulation |
 | MiniStack | AWS | lightweight local cloud platform | fast, small-footprint AWS emulator with broad service ambitions | AWS-focused rather than Azure-focused | developers who want a lighter AWS local-cloud setup |
@@ -358,14 +438,11 @@ This is the practical comparison for current use, not a marketing claim. The poi
 
 - TinyCloud is closer in spirit to LocalStack and MiniStack than to Azurite: it aims to emulate a cloud environment, not just a single storage service.
 - Azurite is the better choice when you only need Azure Storage and want broader storage coverage today.
-- TinyCloud is the better fit when you need Azure-style resource provisioning, metadata/identity endpoints, and Blob behavior together in one local runtime.
+- TinyCloud is the better fit when you need Azure-style resource provisioning, metadata/identity endpoints, and multiple local data-plane services together in one runtime.
 - LocalStack and MiniStack are relevant peers because they define the broader local-cloud developer experience category, even though they target AWS instead of Azure.
 
 ## Current Limitations
 
-- No Key Vault secrets data-plane yet
-- No Service Bus emulation yet
-- No Queue/Table storage emulation yet
 - No deployment template execution; deployments are tracked honestly as unsupported
 - No management TLS listener yet, even though an HTTPS URL can be advertised
 - Not a full Azure CLI or full SDK parity environment
