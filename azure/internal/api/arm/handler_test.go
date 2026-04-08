@@ -328,6 +328,90 @@ func TestPutStorageAccountRequiresExistingResourceGroup(t *testing.T) {
 	}
 }
 
+func TestKeyVaultCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	cfg := config.FromEnv()
+	mux := http.NewServeMux()
+	NewHandler(store, cfg).Register(mux)
+
+	createReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.KeyVault/vaults/vaultone?api-version=2024-01-01", strings.NewReader(`{"location":"westus2","properties":{"tenantId":"tenant-123","sku":{"name":"standard"}},"tags":{"env":"test"}}`))
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusAccepted {
+		t.Fatalf("create status = %d, want %d", createRec.Code, http.StatusAccepted)
+	}
+	if createRec.Header().Get("Azure-AsyncOperation") == "" {
+		t.Fatal("Azure-AsyncOperation header is empty")
+	}
+
+	var created map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("json.Unmarshal() create error = %v", err)
+	}
+	properties, _ := created["properties"].(map[string]any)
+	if properties["vaultUri"] != cfg.KeyVaultURL()+"/vaultone" {
+		t.Fatalf("vaultUri = %v, want %q", properties["vaultUri"], cfg.KeyVaultURL()+"/vaultone")
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.KeyVault/vaults?api-version=2024-01-01", nil)
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listRec.Code, http.StatusOK)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.KeyVault/vaults/vaultone?api-version=2024-01-01", nil)
+	getRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", getRec.Code, http.StatusOK)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.KeyVault/vaults/vaultone?api-version=2024-01-01", nil)
+	deleteRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusAccepted {
+		t.Fatalf("delete status = %d, want %d", deleteRec.Code, http.StatusAccepted)
+	}
+}
+
+func TestPutKeyVaultRequiresExistingResourceGroup(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/missing/providers/Microsoft.KeyVault/vaults/vaultone?api-version=2024-01-01", strings.NewReader(`{"location":"westus2"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestListStorageAccountsRequiresExistingResourceGroup(t *testing.T) {
 	t.Parallel()
 

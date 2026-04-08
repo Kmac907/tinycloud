@@ -37,6 +37,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.putStorageAccount)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.getStorageAccount)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Storage/storageAccounts/{accountName}", h.deleteStorageAccount)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults", h.listKeyVaults)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.putKeyVault)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.getKeyVault)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.deleteKeyVault)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments", h.listDeployments)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.putDeployment)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.getDeployment)
@@ -375,6 +379,135 @@ func (h *Handler) deleteStorageAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+func (h *Handler) listKeyVaults(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	vaults, err := h.store.ListKeyVaults(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(vaults))
+	for _, vault := range vaults {
+		value = append(value, h.keyVaultResponse(vault))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putKeyVault(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Location   string            `json:"location"`
+		Tags       map[string]string `json:"tags"`
+		Properties struct {
+			TenantID string `json:"tenantId"`
+			SKU      struct {
+				Name string `json:"name"`
+			} `json:"sku"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Location == "" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingLocation", "key vault location is required")
+		return
+	}
+
+	vault, err := h.store.UpsertKeyVault(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("vaultName"),
+		body.Location,
+		body.Properties.TenantID,
+		body.Properties.SKU.Name,
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		vault.ID,
+		"Microsoft.KeyVault/vaults/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, h.keyVaultResponse(vault))
+}
+
+func (h *Handler) getKeyVault(w http.ResponseWriter, r *http.Request) {
+	vault, err := h.store.GetKeyVault(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("vaultName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the key vault was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, h.keyVaultResponse(vault))
+}
+
+func (h *Handler) deleteKeyVault(w http.ResponseWriter, r *http.Request) {
+	vault, err := h.store.GetKeyVault(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("vaultName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the key vault was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteKeyVault(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("vaultName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the key vault was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		vault.ID,
+		"Microsoft.KeyVault/vaults/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (h *Handler) listDeployments(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
 		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
@@ -508,6 +641,24 @@ func (h *Handler) storageAccountResponse(account state.StorageAccount) map[strin
 			"primaryEndpoints": map[string]string{
 				"blob": fmt.Sprintf("%s/%s", h.cfg.BlobURL(), account.Name),
 			},
+		},
+	}
+}
+
+func (h *Handler) keyVaultResponse(vault state.KeyVault) map[string]any {
+	return map[string]any{
+		"id":       vault.ID,
+		"name":     vault.Name,
+		"type":     "Microsoft.KeyVault/vaults",
+		"location": vault.Location,
+		"tags":     vault.Tags,
+		"properties": map[string]any{
+			"tenantId":          vault.TenantID,
+			"provisioningState": vault.ProvisioningState,
+			"vaultUri":          fmt.Sprintf("%s/%s", h.cfg.KeyVaultURL(), vault.Name),
+		},
+		"sku": map[string]string{
+			"name": vault.SKUName,
 		},
 	}
 }
