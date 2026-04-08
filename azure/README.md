@@ -17,7 +17,7 @@ TinyCloud is a local Azure-compatible emulator written in Go and packaged as a s
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
-- metadata, OAuth, and minimal IMDS-style managed identity endpoints
+- metadata, OAuth, minimal IMDS-style managed identity endpoints, and a local HTTPS management listener
 - real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, Service Bus, Event Hubs, and basic network-security behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
@@ -36,7 +36,7 @@ Current status across the listed emulator areas:
 | Area | Current level | Notes |
 | --- | --- | --- |
 | ARM tenants/subscriptions/providers | Implemented | Includes provider registration records and tenant listing |
-| ARM resource groups | Implemented | CRUD with Azure-style shapes and async headers |
+| ARM resource groups | Implemented | CRUD with Azure-style create/update semantics and async deletes |
 | ARM storage accounts | Implemented | CRUD with Blob endpoint advertisement |
 | ARM Key Vault resources | Implemented | CRUD for `Microsoft.KeyVault/vaults` |
 | ARM deployments | Partial | Deployment records and async status are implemented; a narrow static template subset works for storage accounts and Key Vault vaults |
@@ -120,12 +120,12 @@ Current status across the listed emulator areas:
 
 ## Ports
 
-All service listeners except the advertised HTTPS management port are active today.
+All listed listeners are active today.
 
 | Port | Status | Purpose |
 | --- | --- | --- |
 | `4566` | Active | management endpoint: ARM, metadata, identity, OAuth, admin |
-| `4567` | Reserved | management HTTPS URL is advertised/configurable, but no TLS listener is started yet |
+| `4567` | Active | management HTTPS endpoint |
 | `4577` | Active | Blob data-plane |
 | `4578` | Active | Queue Storage data-plane |
 | `4579` | Active | Table Storage data-plane |
@@ -169,7 +169,7 @@ Invoke-RestMethod -Method Put `
   -ContentType "application/json"
 ```
 
-Resource-group, storage-account, and Key Vault writes return `202 Accepted` plus `Azure-AsyncOperation`, `Location`, and `Retry-After`.
+Resource-group create/update is synchronous and returns Azure-style `201 Created` or `200 OK`. Resource-group deletes, storage-account writes, and Key Vault writes return `202 Accepted` plus `Azure-AsyncOperation`, `Location`, and `Retry-After`.
 
 Create a virtual network and subnet:
 
@@ -392,7 +392,16 @@ go run .\cmd\tinycloud env pulumi
 go run .\cmd\tinycloud start
 ```
 
-The CLI is not an Azure CLI replacement. It is a local runtime helper plus endpoint/config printer.
+The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
+
+TinyCloud's compatibility direction is intentionally LocalStack-style:
+
+- `tinyterraform` is the TinyCloud analogue to `tflocal`
+- `tinyaz` is the planned TinyCloud analogue to `azlocal`
+- users should be able to keep using normal Terraform and Azure CLI habits with minimal TinyCloud-specific setup
+- both wrappers should invoke the real upstream binaries under the hood rather than reimplementing their command sets
+
+The goal is to put compatibility behavior in thin wrappers around familiar tools rather than forcing users onto a custom control surface.
 
 ## Terraform Example
 
@@ -400,9 +409,11 @@ The current repo includes a Terraform example for `azurerm_resource_group` under
 
 Current status:
 
-- the repo contains a Terraform example and `tinycloud env terraform` output for it
+- the repo contains a Terraform example, `tinycloud env terraform` output, and a Windows wrapper script at `scripts/tinyterraform.ps1`
 - Terraform is required locally; TinyCloud does not bundle it
-- this repo does not currently include an automated Terraform integration test
+- the supported local flow is the wrapper script, not a raw `terraform apply` against `azurerm`
+- the wrapper has been manually verified end to end for `init`, `apply`, and `destroy` against `azurerm_resource_group`
+- the wrapper should be treated as the first step toward a first-class `tinyterraform` command that mirrors `tflocal` behavior as closely as Azure tooling allows
 
 The provider shape currently used in the repo is:
 
@@ -447,34 +458,32 @@ resource "azurerm_resource_group" "example" {
 }
 ```
 
-Then print the local environment values directly:
+Then print the low-level environment values directly:
 
 ```powershell
 go run .\cmd\tinycloud env terraform
 ```
 
-Typical local flow:
+Typical local flow on Windows:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
-go run .\cmd\tinycloudd
+.\scripts\tinyterraform.ps1 init
+.\scripts\tinyterraform.ps1 apply -auto-approve
+.\scripts\tinyterraform.ps1 destroy -auto-approve
 ```
 
-In another terminal:
+`tinyterraform.ps1` is intentionally the TinyCloud analogue to `tflocal`: it invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is embedded in the wrapper, but the intended direction is a standalone `tinyaz` helper analogous to `azlocal`. Because of the temporary hosts-file change, the wrapper must be run from an elevated PowerShell session.
 
-```powershell
-$env:GOCACHE="$PWD\.gocache"
-go run .\cmd\tinycloud env terraform
-```
+`tinyterraform.ps1 init` also resets the TinyCloud runtime state before running Terraform init. That keeps emulator state and Terraform state aligned after failed local applies.
 
-Export the printed values into your shell, then from `examples/terraform/resource-group` run:
+Compatibility goal:
 
-```powershell
-terraform init
-terraform apply
-```
-
-The example material in this repo is under `examples/terraform/resource-group`, but successful `terraform apply` should be treated as environment-dependent until verified on a machine with Terraform installed.
+- preserve normal `terraform` argument passing and user expectations
+- preserve normal Azure CLI habits as much as practical
+- invoke real `terraform` and `az` binaries under the hood
+- pass through stdout, stderr, and exit codes as closely as practical
+- keep TinyCloud-specific wiring in the wrapper layer instead of in user Terraform code
 
 ## Configuration
 
@@ -486,7 +495,7 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_LISTEN_HOST` | Windows: `127.0.0.1`, non-Windows: `0.0.0.0` | bind host |
 | `TINYCLOUD_ADVERTISE_HOST` | `127.0.0.1` | host used in advertised URLs |
 | `TINYCLOUD_MGMT_HTTP_PORT` | `4566` | management listener |
-| `TINYCLOUD_MGMT_HTTPS_PORT` | `4567` | advertised HTTPS management port |
+| `TINYCLOUD_MGMT_HTTPS_PORT` | `4567` | management HTTPS listener |
 | `TINYCLOUD_BLOB_PORT` | `4577` | Blob listener |
 | `TINYCLOUD_QUEUE_PORT` | `4578` | Queue Storage listener |
 | `TINYCLOUD_TABLE_PORT` | `4579` | Table Storage listener |
@@ -577,9 +586,10 @@ This is the practical comparison for current use, not a marketing claim. The poi
 ## Current Limitations
 
 - Deployment template execution is intentionally narrow; only a small static subset is implemented today
-- No management TLS listener yet, even though an HTTPS URL can be advertised
 - Private DNS uses UDP on a non-default port (`4584`) by default, so standard system DNS tools that assume port `53` need an explicit custom resolver configuration
 - Not a full Azure CLI or full SDK parity environment
+- `tinyterraform` is still a script wrapper rather than a polished first-class command with parity-focused UX on every platform
+- No standalone `tinyaz` helper yet; the Azure CLI compatibility layer currently lives inside `tinyterraform.ps1`
 
 ## Examples
 

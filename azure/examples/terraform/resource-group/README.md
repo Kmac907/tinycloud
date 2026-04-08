@@ -1,22 +1,22 @@
 # Terraform Resource Group Example
 
-Run TinyCloud, then export the environment printed by:
+Use the LocalStack-style wrapper from an elevated PowerShell session:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
-go run .\cmd\tinycloud env terraform
+..\..\..\scripts\tinyterraform.ps1 init
+..\..\..\scripts\tinyterraform.ps1 apply -auto-approve
+..\..\..\scripts\tinyterraform.ps1 destroy -auto-approve
 ```
 
 Prerequisites:
 
 - Terraform installed locally
-- TinyCloud running on the local management endpoint
+- Windows PowerShell running as Administrator so the wrapper can temporarily map `management.azure.com` to TinyCloud
+- Go installed locally so the wrapper can build and run the current TinyCloud binary
 
-From this directory:
+`tinyterraform.ps1` is the TinyCloud equivalent of `tflocal`: it invokes the real `terraform` binary, starts TinyCloud, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to TinyCloud's local HTTPS management listener, and cleans up the temporary hosts-file mapping when Terraform exits.
 
-```powershell
-terraform init
-terraform apply
-```
+`tinyterraform.ps1 init` also resets the TinyCloud runtime state before Terraform init so stale emulator resources do not survive failed local applies.
 
-This example is intended to target the local TinyCloud ARM endpoint and create one resource group.
+The long-term direction is to keep this flow as close as practical to normal `terraform` and `az` usage so users can rely on familiar command-line habits inside the local emulator environment.
