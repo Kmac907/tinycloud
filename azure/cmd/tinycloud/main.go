@@ -117,16 +117,23 @@ func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
 
 	switch args[0] {
 	case "terraform":
+		if err := app.EnsureManagementTLSCertFiles(cfg); err != nil {
+			return err
+		}
 		lines := []string{
 			fmt.Sprintf("ARM_ENDPOINT=%s", cfg.ManagementHTTPURL()),
 			fmt.Sprintf("ARM_METADATA_HOST=%s", cfg.ManagementHost()),
+			fmt.Sprintf("ARM_METADATA_HOSTNAME=%s", cfg.ManagementTLSHost()),
+			fmt.Sprintf("ARM_MSI_ENDPOINT=%s", cfg.ManagedIdentityURL()),
 			fmt.Sprintf("ARM_SUBSCRIPTION_ID=%s", cfg.SubscriptionID),
 			fmt.Sprintf("ARM_TENANT_ID=%s", cfg.TenantID),
+			fmt.Sprintf("ARM_USE_MSI=true"),
 			fmt.Sprintf("TINY_BLOB_ENDPOINT=%s", cfg.BlobURL()),
 			fmt.Sprintf("TINY_APPCONFIG_ENDPOINT=%s", cfg.AppConfigURL()),
 			fmt.Sprintf("TINY_COSMOS_ENDPOINT=%s", cfg.CosmosURL()),
 			fmt.Sprintf("TINY_DNS_SERVER=%s", cfg.DNSAddress()),
 			fmt.Sprintf("TINY_EVENTHUBS_ENDPOINT=%s", cfg.EventHubsURL()),
+			fmt.Sprintf("TINY_MGMT_HTTPS_CERT=%s", cfg.ManagementTLSCertPath()),
 			fmt.Sprintf("TINY_OAUTH_TOKEN=%s", cfg.OAuthTokenURL()),
 		}
 		_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))

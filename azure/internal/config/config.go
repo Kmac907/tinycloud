@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -64,8 +65,16 @@ func (c Config) ManagementAddr() string {
 	return fmt.Sprintf("%s:%s", c.ListenHost, c.ManagementHTTP)
 }
 
+func (c Config) ManagementTLSAddr() string {
+	return fmt.Sprintf("%s:%s", c.ListenHost, c.ManagementTLS)
+}
+
 func (c Config) ManagementHost() string {
 	return c.AdvertiseHost
+}
+
+func (c Config) ManagementTLSHost() string {
+	return fmt.Sprintf("%s:%s", c.AdvertiseHost, c.ManagementTLS)
 }
 
 func (c Config) ManagementHTTPURL() string {
@@ -122,6 +131,14 @@ func (c Config) OAuthTokenURL() string {
 
 func (c Config) ManagedIdentityURL() string {
 	return fmt.Sprintf("%s/metadata/identity/oauth2/token", c.ManagementHTTPURL())
+}
+
+func (c Config) ManagementTLSCertPath() string {
+	return filepath.Join(c.DataRoot, "tls", "management.crt")
+}
+
+func (c Config) ManagementTLSKeyPath() string {
+	return filepath.Join(c.DataRoot, "tls", "management.key")
 }
 
 func (c Config) EffectiveTokenIssuer() string {

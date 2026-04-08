@@ -46,6 +46,50 @@ func TestListSubscriptionsReturnsBootstrapRecord(t *testing.T) {
 	}
 }
 
+func TestGetSubscriptionReturnsBootstrapRecord(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	subscriptions, err := store.ListSubscriptions()
+	if err != nil {
+		t.Fatalf("ListSubscriptions() error = %v", err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("len(subscriptions) = %d, want %d", len(subscriptions), 1)
+	}
+
+	cfg := config.FromEnv()
+	mux := http.NewServeMux()
+	NewHandler(store, cfg).Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/subscriptions/"+subscriptions[0].ID+"?api-version=2024-01-01", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body["subscriptionId"] != subscriptions[0].ID {
+		t.Fatalf("subscriptionId = %v, want %q", body["subscriptionId"], subscriptions[0].ID)
+	}
+	if body["tenantId"] != subscriptions[0].TenantID {
+		t.Fatalf("tenantId = %v, want %q", body["tenantId"], subscriptions[0].TenantID)
+	}
+}
+
 func TestListTenantsReturnsBootstrapRecord(t *testing.T) {
 	t.Parallel()
 
@@ -200,11 +244,16 @@ func TestResourceGroupCRUD(t *testing.T) {
 	createRec := httptest.NewRecorder()
 	mux.ServeHTTP(createRec, createReq)
 
-	if createRec.Code != http.StatusAccepted {
-		t.Fatalf("create status = %d, want %d", createRec.Code, http.StatusAccepted)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", createRec.Code, http.StatusCreated)
 	}
-	if createRec.Header().Get("Azure-AsyncOperation") == "" {
-		t.Fatal("Azure-AsyncOperation header is empty")
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one?api-version=2024-01-01", strings.NewReader(`{"location":"westus2","tags":{"env":"updated"}}`))
+	updateRec := httptest.NewRecorder()
+	mux.ServeHTTP(updateRec, updateReq)
+
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", updateRec.Code, http.StatusOK)
 	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups?api-version=2024-01-01", nil)

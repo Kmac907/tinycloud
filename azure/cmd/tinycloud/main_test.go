@@ -22,13 +22,17 @@ func TestRunEnvTerraformIncludesARMAndBlobSettings(t *testing.T) {
 	for _, fragment := range []string{
 		"ARM_ENDPOINT=" + cfg.ManagementHTTPURL(),
 		"ARM_METADATA_HOST=" + cfg.ManagementHost(),
+		"ARM_METADATA_HOSTNAME=" + cfg.ManagementTLSHost(),
+		"ARM_MSI_ENDPOINT=" + cfg.ManagedIdentityURL(),
 		"ARM_SUBSCRIPTION_ID=" + cfg.SubscriptionID,
 		"ARM_TENANT_ID=" + cfg.TenantID,
+		"ARM_USE_MSI=true",
 		"TINY_BLOB_ENDPOINT=" + cfg.BlobURL(),
 		"TINY_APPCONFIG_ENDPOINT=" + cfg.AppConfigURL(),
 		"TINY_COSMOS_ENDPOINT=" + cfg.CosmosURL(),
 		"TINY_DNS_SERVER=" + cfg.DNSAddress(),
 		"TINY_EVENTHUBS_ENDPOINT=" + cfg.EventHubsURL(),
+		"TINY_MGMT_HTTPS_CERT=" + cfg.ManagementTLSCertPath(),
 		"TINY_OAUTH_TOKEN=" + cfg.OAuthTokenURL(),
 	} {
 		if !strings.Contains(output, fragment) {

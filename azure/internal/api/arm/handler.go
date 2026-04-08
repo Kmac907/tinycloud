@@ -26,6 +26,7 @@ func NewHandler(store *state.Store, cfg config.Config) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tenants", h.listTenants)
 	mux.HandleFunc("GET /subscriptions", h.listSubscriptions)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}", h.getSubscription)
 	mux.HandleFunc("GET /providers", h.listProviders)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers", h.listProviders)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers/{namespace}", h.getProvider)
@@ -111,6 +112,31 @@ func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
+func (h *Handler) getSubscription(w http.ResponseWriter, r *http.Request) {
+	subscriptions, err := h.store.ListSubscriptions()
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	subscriptionID := r.PathValue("subscriptionId")
+	for _, subscription := range subscriptions {
+		if subscription.ID != subscriptionID {
+			continue
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
+			"id":             fmt.Sprintf("/subscriptions/%s", subscription.ID),
+			"subscriptionId": subscription.ID,
+			"tenantId":       subscription.TenantID,
+			"displayName":    "TinyCloud Local Subscription",
+			"state":          "Enabled",
+		})
+		return
+	}
+
+	httpx.WriteCloudError(w, http.StatusNotFound, "SubscriptionNotFound", fmt.Sprintf("The subscription '%s' could not be found.", subscriptionID))
+}
+
 func (h *Handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.store.ListProviders()
 	if err != nil {
@@ -182,6 +208,15 @@ func (h *Handler) putResourceGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	statusCode := http.StatusCreated
+	_, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err == nil {
+		statusCode = http.StatusOK
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
 	resourceGroup, err := h.store.UpsertResourceGroup(
 		r.PathValue("subscriptionId"),
 		r.PathValue("resourceGroupName"),
@@ -194,19 +229,7 @@ func (h *Handler) putResourceGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operation, err := h.store.CreateOperation(
-		r.PathValue("subscriptionId"),
-		resourceGroup.ID,
-		"Microsoft.Resources/resourceGroups/write",
-		"Succeeded",
-	)
-	if err != nil {
-		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
-		return
-	}
-
-	setAsyncHeaders(w, operation)
-	httpx.WriteJSON(w, http.StatusAccepted, resourceGroupResponse(resourceGroup))
+	httpx.WriteJSON(w, statusCode, resourceGroupResponse(resourceGroup))
 }
 
 func (h *Handler) getResourceGroup(w http.ResponseWriter, r *http.Request) {
@@ -1472,9 +1495,43 @@ func resourceGroupResponse(resourceGroup state.ResourceGroup) map[string]any {
 }
 
 func providerResponse(provider state.Provider) map[string]any {
+	resourceTypes := providerResourceTypes(provider.Namespace)
 	return map[string]any{
 		"namespace":         provider.Namespace,
 		"registrationState": provider.RegistrationState,
+		"resourceTypes":     resourceTypes,
+	}
+}
+
+func providerResourceTypes(namespace string) []map[string]any {
+	apiVersions := []string{"2024-01-01"}
+	locations := []string{"westus2", "local"}
+
+	switch namespace {
+	case "Microsoft.Resources":
+		return []map[string]any{
+			{"resourceType": "resourceGroups", "apiVersions": apiVersions, "locations": locations},
+			{"resourceType": "deployments", "apiVersions": apiVersions, "locations": locations},
+		}
+	case "Microsoft.Storage":
+		return []map[string]any{
+			{"resourceType": "storageAccounts", "apiVersions": apiVersions, "locations": locations},
+		}
+	case "Microsoft.KeyVault":
+		return []map[string]any{
+			{"resourceType": "vaults", "apiVersions": apiVersions, "locations": locations},
+		}
+	case "Microsoft.Network":
+		return []map[string]any{
+			{"resourceType": "virtualNetworks", "apiVersions": apiVersions, "locations": locations},
+			{"resourceType": "virtualNetworks/subnets", "apiVersions": apiVersions, "locations": locations},
+			{"resourceType": "networkSecurityGroups", "apiVersions": apiVersions, "locations": locations},
+			{"resourceType": "networkSecurityGroups/securityRules", "apiVersions": apiVersions, "locations": locations},
+			{"resourceType": "privateDnsZones", "apiVersions": apiVersions, "locations": []string{"global"}},
+			{"resourceType": "privateDnsZones/A", "apiVersions": apiVersions, "locations": []string{"global"}},
+		}
+	default:
+		return []map[string]any{}
 	}
 }
 

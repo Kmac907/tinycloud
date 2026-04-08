@@ -29,9 +29,12 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 		TenantID       string            `json:"tenantId"`
 		SubscriptionID string            `json:"subscriptionId"`
 		Environment    string            `json:"environment"`
+		ResourceManager string           `json:"resourceManager"`
+		ActiveDirectory string           `json:"activeDirectory"`
 		Authentication map[string]string `json:"authentication"`
-		Management     map[string]string `json:"management"`
-		ResourceMgr    map[string]any    `json:"resourceManager"`
+		Management     map[string]string `json:"managementInfo"`
+		ResourceMgr    map[string]any    `json:"resourceManagerInfo"`
+		Endpoints      map[string]string `json:"endpoints"`
 		Suffixes       map[string]string `json:"suffixes"`
 		Services       map[string]string `json:"services"`
 	}
@@ -43,6 +46,12 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 	if body.TenantID != cfg.TenantID {
 		t.Fatalf("tenantId = %q, want %q", body.TenantID, cfg.TenantID)
+	}
+	if body.ResourceManager != cfg.ManagementHTTPURL()+"/" {
+		t.Fatalf("resourceManager = %q, want %q", body.ResourceManager, cfg.ManagementHTTPURL()+"/")
+	}
+	if body.ActiveDirectory != cfg.OAuthTokenURL()+"/" {
+		t.Fatalf("activeDirectory = %q, want %q", body.ActiveDirectory, cfg.OAuthTokenURL()+"/")
 	}
 	if body.Authentication["oauthToken"] != cfg.OAuthTokenURL() {
 		t.Fatalf("authentication.oauthToken = %q, want %q", body.Authentication["oauthToken"], cfg.OAuthTokenURL())
@@ -67,6 +76,12 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 	if body.Services["eventHubs"] != cfg.EventHubsURL() {
 		t.Fatalf("services.eventHubs = %q, want %q", body.Services["eventHubs"], cfg.EventHubsURL())
+	}
+	if body.Endpoints["resourceManager"] != cfg.ManagementHTTPURL()+"/" {
+		t.Fatalf("endpoints.resourceManager = %q, want %q", body.Endpoints["resourceManager"], cfg.ManagementHTTPURL()+"/")
+	}
+	if body.Endpoints["activeDirectory"] != cfg.OAuthTokenURL()+"/" {
+		t.Fatalf("endpoints.activeDirectory = %q, want %q", body.Endpoints["activeDirectory"], cfg.OAuthTokenURL()+"/")
 	}
 	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
 		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)

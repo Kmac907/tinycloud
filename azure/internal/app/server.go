@@ -45,6 +45,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := s.store.Init(); err != nil {
 		return err
 	}
+	if err := EnsureManagementTLSCertFiles(s.cfg); err != nil {
+		return err
+	}
 
 	mux := http.NewServeMux()
 	authService := auth.NewService(s.cfg)
@@ -71,6 +74,11 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 	server := &http.Server{
 		Addr:              s.cfg.ManagementAddr(),
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	managementTLSServer := &http.Server{
+		Addr:              s.cfg.ManagementTLSAddr(),
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -142,22 +150,27 @@ func (s *Server) Run(ctx context.Context) error {
 	dnsServer := dns.NewServer(s.store, s.cfg, s.logger)
 
 	s.logger.Info("tinycloud server starting", map[string]any{
-		"addr":           s.cfg.ManagementAddr(),
-		"blobAddr":       s.cfg.ListenHost + ":" + s.cfg.Blob,
-		"queueAddr":      s.cfg.ListenHost + ":" + s.cfg.Queue,
-		"tableAddr":      s.cfg.ListenHost + ":" + s.cfg.Table,
-		"serviceBusAddr": s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
-		"keyVaultAddr":   s.cfg.ListenHost + ":" + s.cfg.KeyVault,
-		"appConfigAddr":  s.cfg.ListenHost + ":" + s.cfg.AppConfig,
-		"cosmosAddr":     s.cfg.ListenHost + ":" + s.cfg.Cosmos,
-		"eventHubsAddr":  s.cfg.ListenHost + ":" + s.cfg.EventHubs,
-		"dnsAddr":        s.cfg.ListenHost + ":" + s.cfg.DNS,
-		"dataRoot":       s.cfg.DataRoot,
+		"addr":               s.cfg.ManagementAddr(),
+		"managementTLSAddr":  s.cfg.ManagementTLSAddr(),
+		"managementTLSCert":  s.cfg.ManagementTLSCertPath(),
+		"blobAddr":           s.cfg.ListenHost + ":" + s.cfg.Blob,
+		"queueAddr":          s.cfg.ListenHost + ":" + s.cfg.Queue,
+		"tableAddr":          s.cfg.ListenHost + ":" + s.cfg.Table,
+		"serviceBusAddr":     s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
+		"keyVaultAddr":       s.cfg.ListenHost + ":" + s.cfg.KeyVault,
+		"appConfigAddr":      s.cfg.ListenHost + ":" + s.cfg.AppConfig,
+		"cosmosAddr":         s.cfg.ListenHost + ":" + s.cfg.Cosmos,
+		"eventHubsAddr":      s.cfg.ListenHost + ":" + s.cfg.EventHubs,
+		"dnsAddr":            s.cfg.ListenHost + ":" + s.cfg.DNS,
+		"dataRoot":           s.cfg.DataRoot,
 	})
 
 	errCh := make(chan error, 10)
 	go func() {
 		errCh <- server.ListenAndServe()
+	}()
+	go func() {
+		errCh <- managementTLSServer.ListenAndServeTLS(s.cfg.ManagementTLSCertPath(), s.cfg.ManagementTLSKeyPath())
 	}()
 	go func() {
 		errCh <- blobServer.ListenAndServe()
@@ -195,6 +208,9 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := keyVaultServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+		if err := managementTLSServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 		if err := appConfigServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -224,6 +240,7 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = keyVaultServer.Shutdown(shutdownCtx)
+		_ = managementTLSServer.Shutdown(shutdownCtx)
 		_ = appConfigServer.Shutdown(shutdownCtx)
 		_ = cosmosServer.Shutdown(shutdownCtx)
 		_ = eventHubsServer.Shutdown(shutdownCtx)
