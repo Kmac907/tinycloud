@@ -857,6 +857,132 @@ func TestSnapshotAndRestorePreserveServiceBusState(t *testing.T) {
 	}
 }
 
+func TestServiceBusTopicRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusNamespace("local-messaging"); err != nil {
+		t.Fatalf("CreateServiceBusNamespace() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusTopic("local-messaging", "events"); err != nil {
+		t.Fatalf("CreateServiceBusTopic() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusSubscription("local-messaging", "events", "worker-a"); err != nil {
+		t.Fatalf("CreateServiceBusSubscription() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusSubscription("local-messaging", "events", "worker-b"); err != nil {
+		t.Fatalf("CreateServiceBusSubscription() error = %v", err)
+	}
+
+	topics, err := store.ListServiceBusTopics("local-messaging")
+	if err != nil {
+		t.Fatalf("ListServiceBusTopics() error = %v", err)
+	}
+	if len(topics) != 1 {
+		t.Fatalf("len(topics) = %d, want %d", len(topics), 1)
+	}
+
+	subscriptions, err := store.ListServiceBusSubscriptions("local-messaging", "events")
+	if err != nil {
+		t.Fatalf("ListServiceBusSubscriptions() error = %v", err)
+	}
+	if len(subscriptions) != 2 {
+		t.Fatalf("len(subscriptions) = %d, want %d", len(subscriptions), 2)
+	}
+
+	if _, err := store.PublishServiceBusTopicMessage("local-messaging", "events", `{"event":"created"}`); err != nil {
+		t.Fatalf("PublishServiceBusTopicMessage() error = %v", err)
+	}
+
+	messages, err := store.ReceiveServiceBusSubscriptionMessages("local-messaging", "events", "worker-a", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusSubscriptionMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].Body != `{"event":"created"}` {
+		t.Fatalf("Body = %q, want %q", messages[0].Body, `{"event":"created"}`)
+	}
+
+	otherMessages, err := store.ReceiveServiceBusSubscriptionMessages("local-messaging", "events", "worker-b", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusSubscriptionMessages() other error = %v", err)
+	}
+	if len(otherMessages) != 1 {
+		t.Fatalf("len(otherMessages) = %d, want %d", len(otherMessages), 1)
+	}
+
+	if err := store.DeleteServiceBusSubscriptionMessage("local-messaging", "events", "worker-a", messages[0].ID, messages[0].LockToken); err != nil {
+		t.Fatalf("DeleteServiceBusSubscriptionMessage() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreserveServiceBusTopicState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusNamespace("local-messaging"); err != nil {
+		t.Fatalf("CreateServiceBusNamespace() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusTopic("local-messaging", "events"); err != nil {
+		t.Fatalf("CreateServiceBusTopic() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusSubscription("local-messaging", "events", "worker-a"); err != nil {
+		t.Fatalf("CreateServiceBusSubscription() error = %v", err)
+	}
+	if _, err := store.PublishServiceBusTopicMessage("local-messaging", "events", `{"event":"created"}`); err != nil {
+		t.Fatalf("PublishServiceBusTopicMessage() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "servicebus-topics.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	subscriptions, err := restoreStore.ListServiceBusSubscriptions("local-messaging", "events")
+	if err != nil {
+		t.Fatalf("ListServiceBusSubscriptions() error = %v", err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("len(subscriptions) = %d, want %d", len(subscriptions), 1)
+	}
+
+	messages, err := restoreStore.ReceiveServiceBusSubscriptionMessages("local-messaging", "events", "worker-a", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusSubscriptionMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].Body != `{"event":"created"}` {
+		t.Fatalf("Body = %q, want %q", messages[0].Body, `{"event":"created"}`)
+	}
+}
+
 func TestKeyVaultCRUD(t *testing.T) {
 	t.Parallel()
 

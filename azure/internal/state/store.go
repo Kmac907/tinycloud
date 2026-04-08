@@ -21,22 +21,25 @@ type Store struct {
 }
 
 type Document struct {
-	Version         string                   `json:"version"`
-	UpdatedAt       string                   `json:"updatedAt"`
-	Resources       map[string]ResourceGroup `json:"resources"`
-	BlobContainers  []BlobContainer          `json:"blobContainers,omitempty"`
-	Blobs           []BlobObject             `json:"blobs,omitempty"`
-	Queues          []StorageQueue           `json:"queues,omitempty"`
-	QueueMessages   []QueueMessage           `json:"queueMessages,omitempty"`
-	Tables          []StorageTable           `json:"tables,omitempty"`
-	TableEntities   []TableEntity            `json:"tableEntities,omitempty"`
-	ServiceBusNamespaces []ServiceBusNamespace `json:"serviceBusNamespaces,omitempty"`
-	ServiceBusQueues []ServiceBusQueue `json:"serviceBusQueues,omitempty"`
-	ServiceBusMessages []ServiceBusMessage `json:"serviceBusMessages,omitempty"`
-	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
-	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
-	KeyVaultSecrets []KeyVaultSecret         `json:"keyVaultSecrets,omitempty"`
-	Deployments     []Deployment             `json:"deployments,omitempty"`
+	Version                        string                          `json:"version"`
+	UpdatedAt                      string                          `json:"updatedAt"`
+	Resources                      map[string]ResourceGroup        `json:"resources"`
+	BlobContainers                 []BlobContainer                 `json:"blobContainers,omitempty"`
+	Blobs                          []BlobObject                    `json:"blobs,omitempty"`
+	Queues                         []StorageQueue                  `json:"queues,omitempty"`
+	QueueMessages                  []QueueMessage                  `json:"queueMessages,omitempty"`
+	Tables                         []StorageTable                  `json:"tables,omitempty"`
+	TableEntities                  []TableEntity                   `json:"tableEntities,omitempty"`
+	ServiceBusNamespaces           []ServiceBusNamespace           `json:"serviceBusNamespaces,omitempty"`
+	ServiceBusQueues               []ServiceBusQueue               `json:"serviceBusQueues,omitempty"`
+	ServiceBusMessages             []ServiceBusMessage             `json:"serviceBusMessages,omitempty"`
+	ServiceBusTopics               []ServiceBusTopic               `json:"serviceBusTopics,omitempty"`
+	ServiceBusSubscriptions        []ServiceBusSubscription        `json:"serviceBusSubscriptions,omitempty"`
+	ServiceBusSubscriptionMessages []ServiceBusSubscriptionMessage `json:"serviceBusSubscriptionMessages,omitempty"`
+	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
+	KeyVaults                      []KeyVault                      `json:"keyVaults,omitempty"`
+	KeyVaultSecrets                []KeyVaultSecret                `json:"keyVaultSecrets,omitempty"`
+	Deployments                    []Deployment                    `json:"deployments,omitempty"`
 }
 
 type ResourceGroup struct {
@@ -104,15 +107,15 @@ type StorageQueue struct {
 }
 
 type QueueMessage struct {
-	AccountName   string `json:"accountName"`
-	QueueName     string `json:"queueName"`
-	ID            string `json:"id"`
-	MessageText   string `json:"messageText"`
-	PopReceipt    string `json:"popReceipt"`
-	DequeueCount  int    `json:"dequeueCount"`
-	VisibleAt     string `json:"visibleAt"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	AccountName  string `json:"accountName"`
+	QueueName    string `json:"queueName"`
+	ID           string `json:"id"`
+	MessageText  string `json:"messageText"`
+	PopReceipt   string `json:"popReceipt"`
+	DequeueCount int    `json:"dequeueCount"`
+	VisibleAt    string `json:"visibleAt"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
 }
 
 type StorageTable struct {
@@ -123,13 +126,13 @@ type StorageTable struct {
 }
 
 type TableEntity struct {
-	AccountName   string         `json:"accountName"`
-	TableName     string         `json:"tableName"`
-	PartitionKey  string         `json:"partitionKey"`
-	RowKey        string         `json:"rowKey"`
-	Properties    map[string]any `json:"properties"`
-	CreatedAt     string         `json:"createdAt"`
-	UpdatedAt     string         `json:"updatedAt"`
+	AccountName  string         `json:"accountName"`
+	TableName    string         `json:"tableName"`
+	PartitionKey string         `json:"partitionKey"`
+	RowKey       string         `json:"rowKey"`
+	Properties   map[string]any `json:"properties"`
+	CreatedAt    string         `json:"createdAt"`
+	UpdatedAt    string         `json:"updatedAt"`
 }
 
 type ServiceBusNamespace struct {
@@ -155,6 +158,34 @@ type ServiceBusMessage struct {
 	VisibleAt     string `json:"visibleAt"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
+}
+
+type ServiceBusTopic struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type ServiceBusSubscription struct {
+	Namespace string `json:"namespace"`
+	TopicName string `json:"topicName"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type ServiceBusSubscriptionMessage struct {
+	Namespace        string `json:"namespace"`
+	TopicName        string `json:"topicName"`
+	SubscriptionName string `json:"subscriptionName"`
+	ID               string `json:"id"`
+	Body             string `json:"body"`
+	LockToken        string `json:"lockToken"`
+	DeliveryCount    int    `json:"deliveryCount"`
+	VisibleAt        string `json:"visibleAt"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -372,6 +403,15 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.ServiceBusMessages == nil {
 		doc.ServiceBusMessages = []ServiceBusMessage{}
+	}
+	if doc.ServiceBusTopics == nil {
+		doc.ServiceBusTopics = []ServiceBusTopic{}
+	}
+	if doc.ServiceBusSubscriptions == nil {
+		doc.ServiceBusSubscriptions = []ServiceBusSubscription{}
+	}
+	if doc.ServiceBusSubscriptionMessages == nil {
+		doc.ServiceBusSubscriptionMessages = []ServiceBusSubscriptionMessage{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -1927,6 +1967,391 @@ WHERE namespace_name = ? AND queue_name = ? AND id = ? AND lock_token = ?`,
 	return nil
 }
 
+func (s *Store) CreateServiceBusTopic(namespaceName, topicName string) (ServiceBusTopic, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusTopic{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusTopic{}, false, err
+	}
+
+	var namespaceExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_namespaces WHERE name = ?
+)`, namespaceName).Scan(&namespaceExists); err != nil {
+		return ServiceBusTopic{}, false, fmt.Errorf("query service bus namespace: %w", err)
+	}
+	if !namespaceExists {
+		return ServiceBusTopic{}, false, sql.ErrNoRows
+	}
+
+	var existing ServiceBusTopic
+	err = db.QueryRow(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_topics
+WHERE namespace_name = ? AND name = ?`, namespaceName, topicName).Scan(
+		&existing.Namespace,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ServiceBusTopic{}, false, fmt.Errorf("read service bus topic: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO service_bus_topics (namespace_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, namespaceName, topicName, nowValue, nowValue); err != nil {
+		return ServiceBusTopic{}, false, fmt.Errorf("create service bus topic: %w", err)
+	}
+
+	return ServiceBusTopic{
+		Namespace: namespaceName,
+		Name:      topicName,
+		CreatedAt: nowValue,
+		UpdatedAt: nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListServiceBusTopics(namespaceName string) ([]ServiceBusTopic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_topics
+WHERE namespace_name = ?
+ORDER BY name`, namespaceName)
+	if err != nil {
+		return nil, fmt.Errorf("list service bus topics: %w", err)
+	}
+	defer rows.Close()
+
+	var topics []ServiceBusTopic
+	for rows.Next() {
+		var topic ServiceBusTopic
+		if err := rows.Scan(&topic.Namespace, &topic.Name, &topic.CreatedAt, &topic.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan service bus topic: %w", err)
+		}
+		topics = append(topics, topic)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus topics: %w", err)
+	}
+	return topics, nil
+}
+
+func (s *Store) CreateServiceBusSubscription(namespaceName, topicName, subscriptionName string) (ServiceBusSubscription, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusSubscription{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusSubscription{}, false, err
+	}
+
+	var topicExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_topics WHERE namespace_name = ? AND name = ?
+)`, namespaceName, topicName).Scan(&topicExists); err != nil {
+		return ServiceBusSubscription{}, false, fmt.Errorf("query service bus topic: %w", err)
+	}
+	if !topicExists {
+		return ServiceBusSubscription{}, false, sql.ErrNoRows
+	}
+
+	var existing ServiceBusSubscription
+	err = db.QueryRow(`
+SELECT namespace_name, topic_name, name, created_at, updated_at
+FROM service_bus_subscriptions
+WHERE namespace_name = ? AND topic_name = ? AND name = ?`, namespaceName, topicName, subscriptionName).Scan(
+		&existing.Namespace,
+		&existing.TopicName,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ServiceBusSubscription{}, false, fmt.Errorf("read service bus subscription: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO service_bus_subscriptions (namespace_name, topic_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?)`, namespaceName, topicName, subscriptionName, nowValue, nowValue); err != nil {
+		return ServiceBusSubscription{}, false, fmt.Errorf("create service bus subscription: %w", err)
+	}
+
+	return ServiceBusSubscription{
+		Namespace: namespaceName,
+		TopicName: topicName,
+		Name:      subscriptionName,
+		CreatedAt: nowValue,
+		UpdatedAt: nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListServiceBusSubscriptions(namespaceName, topicName string) ([]ServiceBusSubscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT namespace_name, topic_name, name, created_at, updated_at
+FROM service_bus_subscriptions
+WHERE namespace_name = ? AND topic_name = ?
+ORDER BY name`, namespaceName, topicName)
+	if err != nil {
+		return nil, fmt.Errorf("list service bus subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []ServiceBusSubscription
+	for rows.Next() {
+		var subscription ServiceBusSubscription
+		if err := rows.Scan(&subscription.Namespace, &subscription.TopicName, &subscription.Name, &subscription.CreatedAt, &subscription.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan service bus subscription: %w", err)
+		}
+		subscriptions = append(subscriptions, subscription)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus subscriptions: %w", err)
+	}
+	return subscriptions, nil
+}
+
+func (s *Store) PublishServiceBusTopicMessage(namespaceName, topicName, body string) (ServiceBusSubscriptionMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusSubscriptionMessage{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusSubscriptionMessage{}, err
+	}
+
+	rows, err := db.Query(`
+SELECT name
+FROM service_bus_subscriptions
+WHERE namespace_name = ? AND topic_name = ?
+ORDER BY name`, namespaceName, topicName)
+	if err != nil {
+		return ServiceBusSubscriptionMessage{}, fmt.Errorf("query service bus subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return ServiceBusSubscriptionMessage{}, fmt.Errorf("scan service bus subscription name: %w", err)
+		}
+		subscriptions = append(subscriptions, name)
+	}
+	if err := rows.Err(); err != nil {
+		return ServiceBusSubscriptionMessage{}, fmt.Errorf("iterate service bus subscriptions: %w", err)
+	}
+	if len(subscriptions) == 0 {
+		return ServiceBusSubscriptionMessage{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	messageID := fmt.Sprintf("sbtopicmsg-%d", time.Now().UTC().UnixNano())
+	first := ServiceBusSubscriptionMessage{}
+	for i, subscriptionName := range subscriptions {
+		lockToken := fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano()+int64(i))
+		if _, err := db.Exec(`
+INSERT INTO service_bus_subscription_messages (
+    namespace_name, topic_name, subscription_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			namespaceName, topicName, subscriptionName, messageID, body, lockToken, 0, nowValue, nowValue, nowValue,
+		); err != nil {
+			return ServiceBusSubscriptionMessage{}, fmt.Errorf("publish service bus topic message: %w", err)
+		}
+		if i == 0 {
+			first = ServiceBusSubscriptionMessage{
+				Namespace:        namespaceName,
+				TopicName:        topicName,
+				SubscriptionName: subscriptionName,
+				ID:               messageID,
+				Body:             body,
+				LockToken:        lockToken,
+				DeliveryCount:    0,
+				VisibleAt:        nowValue,
+				CreatedAt:        nowValue,
+				UpdatedAt:        nowValue,
+			}
+		}
+	}
+
+	return first, nil
+}
+
+func (s *Store) ReceiveServiceBusSubscriptionMessages(namespaceName, topicName, subscriptionName string, maxMessages int, visibilityTimeout time.Duration) ([]ServiceBusSubscriptionMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+	if maxMessages <= 0 {
+		maxMessages = 1
+	}
+
+	var subscriptionExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_subscriptions WHERE namespace_name = ? AND topic_name = ? AND name = ?
+)`, namespaceName, topicName, subscriptionName).Scan(&subscriptionExists); err != nil {
+		return nil, fmt.Errorf("query service bus subscription: %w", err)
+	}
+	if !subscriptionExists {
+		return nil, sql.ErrNoRows
+	}
+
+	nowValue := time.Now().UTC()
+	rows, err := db.Query(`
+SELECT namespace_name, topic_name, subscription_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+FROM service_bus_subscription_messages
+WHERE namespace_name = ? AND topic_name = ? AND subscription_name = ? AND visible_at <= ?
+ORDER BY created_at
+LIMIT ?`, namespaceName, topicName, subscriptionName, nowValue.Format(time.RFC3339Nano), maxMessages)
+	if err != nil {
+		return nil, fmt.Errorf("receive service bus subscription messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []ServiceBusSubscriptionMessage
+	for rows.Next() {
+		var message ServiceBusSubscriptionMessage
+		if err := rows.Scan(
+			&message.Namespace,
+			&message.TopicName,
+			&message.SubscriptionName,
+			&message.ID,
+			&message.Body,
+			&message.LockToken,
+			&message.DeliveryCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan service bus subscription message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus subscription messages: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close service bus subscription message rows: %w", err)
+	}
+
+	for i := range messages {
+		messages[i].DeliveryCount++
+		messages[i].LockToken = fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano())
+		messages[i].VisibleAt = nowValue.Add(visibilityTimeout).Format(time.RFC3339Nano)
+		messages[i].UpdatedAt = nowValue.Format(time.RFC3339Nano)
+		if _, err := db.Exec(`
+UPDATE service_bus_subscription_messages
+SET lock_token = ?, delivery_count = ?, visible_at = ?, updated_at = ?
+WHERE namespace_name = ? AND topic_name = ? AND subscription_name = ? AND id = ?`,
+			messages[i].LockToken,
+			messages[i].DeliveryCount,
+			messages[i].VisibleAt,
+			messages[i].UpdatedAt,
+			messages[i].Namespace,
+			messages[i].TopicName,
+			messages[i].SubscriptionName,
+			messages[i].ID,
+		); err != nil {
+			return nil, fmt.Errorf("update service bus subscription message visibility: %w", err)
+		}
+	}
+	return messages, nil
+}
+
+func (s *Store) DeleteServiceBusSubscriptionMessage(namespaceName, topicName, subscriptionName, messageID, lockToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM service_bus_subscription_messages
+WHERE namespace_name = ? AND topic_name = ? AND subscription_name = ? AND id = ? AND lock_token = ?`,
+		namespaceName, topicName, subscriptionName, messageID, lockToken,
+	)
+	if err != nil {
+		return fmt.Errorf("delete service bus subscription message: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete service bus subscription message rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2650,6 +3075,34 @@ CREATE TABLE IF NOT EXISTS service_bus_messages (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (namespace_name, queue_name, id)
 );
+CREATE TABLE IF NOT EXISTS service_bus_topics (
+    namespace_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, name)
+);
+CREATE TABLE IF NOT EXISTS service_bus_subscriptions (
+    namespace_name TEXT NOT NULL,
+    topic_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, topic_name, name)
+);
+CREATE TABLE IF NOT EXISTS service_bus_subscription_messages (
+    namespace_name TEXT NOT NULL,
+    topic_name TEXT NOT NULL,
+    subscription_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    lock_token TEXT NOT NULL,
+    delivery_count INTEGER NOT NULL,
+    visible_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, topic_name, subscription_name, id)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -2996,6 +3449,77 @@ ORDER BY namespace_name, queue_name, created_at`)
 		return Document{}, fmt.Errorf("iterate service bus messages: %w", err)
 	}
 
+	serviceBusTopicRows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_topics
+ORDER BY namespace_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus topics: %w", err)
+	}
+	defer serviceBusTopicRows.Close()
+
+	for serviceBusTopicRows.Next() {
+		var topic ServiceBusTopic
+		if err := serviceBusTopicRows.Scan(&topic.Namespace, &topic.Name, &topic.CreatedAt, &topic.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan service bus topic: %w", err)
+		}
+		doc.ServiceBusTopics = append(doc.ServiceBusTopics, topic)
+	}
+	if err := serviceBusTopicRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus topics: %w", err)
+	}
+
+	serviceBusSubscriptionRows, err := db.Query(`
+SELECT namespace_name, topic_name, name, created_at, updated_at
+FROM service_bus_subscriptions
+ORDER BY namespace_name, topic_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus subscriptions: %w", err)
+	}
+	defer serviceBusSubscriptionRows.Close()
+
+	for serviceBusSubscriptionRows.Next() {
+		var subscription ServiceBusSubscription
+		if err := serviceBusSubscriptionRows.Scan(&subscription.Namespace, &subscription.TopicName, &subscription.Name, &subscription.CreatedAt, &subscription.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan service bus subscription: %w", err)
+		}
+		doc.ServiceBusSubscriptions = append(doc.ServiceBusSubscriptions, subscription)
+	}
+	if err := serviceBusSubscriptionRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus subscriptions: %w", err)
+	}
+
+	serviceBusSubscriptionMessageRows, err := db.Query(`
+SELECT namespace_name, topic_name, subscription_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+FROM service_bus_subscription_messages
+ORDER BY namespace_name, topic_name, subscription_name, created_at`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus subscription messages: %w", err)
+	}
+	defer serviceBusSubscriptionMessageRows.Close()
+
+	for serviceBusSubscriptionMessageRows.Next() {
+		var message ServiceBusSubscriptionMessage
+		if err := serviceBusSubscriptionMessageRows.Scan(
+			&message.Namespace,
+			&message.TopicName,
+			&message.SubscriptionName,
+			&message.ID,
+			&message.Body,
+			&message.LockToken,
+			&message.DeliveryCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan service bus subscription message: %w", err)
+		}
+		doc.ServiceBusSubscriptionMessages = append(doc.ServiceBusSubscriptionMessages, message)
+	}
+	if err := serviceBusSubscriptionMessageRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus subscription messages: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -3190,6 +3714,18 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_messages`); err != nil {
 		err = fmt.Errorf("clear service bus messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_subscription_messages`); err != nil {
+		err = fmt.Errorf("clear service bus subscription messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_subscriptions`); err != nil {
+		err = fmt.Errorf("clear service bus subscriptions: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_topics`); err != nil {
+		err = fmt.Errorf("clear service bus topics: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_queues`); err != nil {
@@ -3481,6 +4017,73 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, topic := range doc.ServiceBusTopics {
+		if topic.CreatedAt == "" {
+			topic.CreatedAt = doc.UpdatedAt
+		}
+		if topic.UpdatedAt == "" {
+			topic.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_topics (namespace_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			topic.Namespace,
+			topic.Name,
+			topic.CreatedAt,
+			topic.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus topic: %w", err)
+			return err
+		}
+	}
+	for _, subscription := range doc.ServiceBusSubscriptions {
+		if subscription.CreatedAt == "" {
+			subscription.CreatedAt = doc.UpdatedAt
+		}
+		if subscription.UpdatedAt == "" {
+			subscription.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_subscriptions (namespace_name, topic_name, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			subscription.Namespace,
+			subscription.TopicName,
+			subscription.Name,
+			subscription.CreatedAt,
+			subscription.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus subscription: %w", err)
+			return err
+		}
+	}
+	for _, message := range doc.ServiceBusSubscriptionMessages {
+		if message.LockToken == "" {
+			message.LockToken = fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano())
+		}
+		if message.VisibleAt == "" {
+			message.VisibleAt = doc.UpdatedAt
+		}
+		if message.CreatedAt == "" {
+			message.CreatedAt = doc.UpdatedAt
+		}
+		if message.UpdatedAt == "" {
+			message.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_subscription_messages (namespace_name, topic_name, subscription_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			message.Namespace,
+			message.TopicName,
+			message.SubscriptionName,
+			message.ID,
+			message.Body,
+			message.LockToken,
+			message.DeliveryCount,
+			message.VisibleAt,
+			message.CreatedAt,
+			message.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus subscription message: %w", err)
+			return err
+		}
+	}
 	for _, account := range doc.StorageAccounts {
 		if account.Kind == "" {
 			account.Kind = "StorageV2"
@@ -3651,22 +4254,25 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, doc.UpdatedAt); err != n
 
 func newDocument() Document {
 	return Document{
-		Version:         "foundation-v1",
-		UpdatedAt:       now(),
-		Resources:       map[string]ResourceGroup{},
-		BlobContainers:  []BlobContainer{},
-		Blobs:           []BlobObject{},
-		Queues:          []StorageQueue{},
-		QueueMessages:   []QueueMessage{},
-		Tables:          []StorageTable{},
-		TableEntities:   []TableEntity{},
-		ServiceBusNamespaces: []ServiceBusNamespace{},
-		ServiceBusQueues: []ServiceBusQueue{},
-		ServiceBusMessages: []ServiceBusMessage{},
-		StorageAccounts: []StorageAccount{},
-		KeyVaults:       []KeyVault{},
-		KeyVaultSecrets: []KeyVaultSecret{},
-		Deployments:     []Deployment{},
+		Version:                        "foundation-v1",
+		UpdatedAt:                      now(),
+		Resources:                      map[string]ResourceGroup{},
+		BlobContainers:                 []BlobContainer{},
+		Blobs:                          []BlobObject{},
+		Queues:                         []StorageQueue{},
+		QueueMessages:                  []QueueMessage{},
+		Tables:                         []StorageTable{},
+		TableEntities:                  []TableEntity{},
+		ServiceBusNamespaces:           []ServiceBusNamespace{},
+		ServiceBusQueues:               []ServiceBusQueue{},
+		ServiceBusMessages:             []ServiceBusMessage{},
+		ServiceBusTopics:               []ServiceBusTopic{},
+		ServiceBusSubscriptions:        []ServiceBusSubscription{},
+		ServiceBusSubscriptionMessages: []ServiceBusSubscriptionMessage{},
+		StorageAccounts:                []StorageAccount{},
+		KeyVaults:                      []KeyVault{},
+		KeyVaultSecrets:                []KeyVaultSecret{},
+		Deployments:                    []Deployment{},
 	}
 }
 
