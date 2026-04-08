@@ -45,7 +45,7 @@ func runE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 		return 1, err
 	}
 
-	commandArgs := append([]string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath}, args...)
+	commandArgs := buildPowerShellCommandArgs(scriptPath, args)
 	cmd := exec.Command(powerShellExe, commandArgs...)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -113,6 +113,12 @@ func findUpward(start, relativePath string) (string, error) {
 	}
 
 	return "", os.ErrNotExist
+}
+
+func buildPowerShellCommandArgs(scriptPath string, args []string) []string {
+	command := "& { param([string]$ScriptPath, [Parameter(ValueFromRemainingArguments=$true)][string[]]$ForwardArgs) & $ScriptPath @ForwardArgs; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE } }"
+	commandArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command, scriptPath}
+	return append(commandArgs, args...)
 }
 
 func uniquePaths(values []string) []string {

@@ -22,8 +22,32 @@ function Get-TerraformSubcommand {
     return ""
 }
 
+function Test-RequiresTinyCloudRuntime {
+    param([string]$Subcommand)
+
+    if ([string]::IsNullOrWhiteSpace($Subcommand)) {
+        return $false
+    }
+
+    return $Subcommand -notin @(
+        "version",
+        "fmt",
+        "validate",
+        "providers",
+        "state",
+        "output",
+        "show",
+        "graph",
+        "workspace",
+        "force-unlock",
+        "taint",
+        "untaint"
+    )
+}
+
 $terraformSubcommand = Get-TerraformSubcommand -InputArgs $TerraformArgs
-$requiresPrivilegedRuntime = $terraformSubcommand -ne "init"
+$requiresTinyCloudRuntime = Test-RequiresTinyCloudRuntime -Subcommand $terraformSubcommand
+$requiresPrivilegedRuntime = $requiresTinyCloudRuntime -and $terraformSubcommand -ne "init"
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if ($requiresPrivilegedRuntime -and -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -118,6 +142,11 @@ New-Item -ItemType Directory -Force $runtimeRoot,$dataRoot,$shimDir | Out-Null
 $terraformExe = Resolve-TerraformExe
 Write-Host ("Using terraform: " + $terraformExe)
 $shimPowerShellExe = (Get-Process -Id $PID).Path
+
+if (-not $requiresTinyCloudRuntime) {
+    & $terraformExe @TerraformArgs
+    exit $LASTEXITCODE
+}
 
 $azShimLauncher = @'
 @echo off
@@ -269,11 +298,6 @@ foreach ($key in $requiredKeys) {
     if (-not $envMap.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($envMap[$key])) {
         throw "TinyCloud Terraform environment is missing $key"
     }
-}
-
-if (-not $requiresPrivilegedRuntime) {
-    & $terraformExe @TerraformArgs
-    exit $LASTEXITCODE
 }
 
 foreach ($key in $terraformEnvClearList) {

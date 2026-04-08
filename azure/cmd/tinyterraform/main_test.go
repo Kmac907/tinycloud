@@ -89,3 +89,29 @@ func TestFindUpwardFindsWrapperScript(t *testing.T) {
 		t.Fatalf("findUpward() = %q, want %q", path, scriptPath)
 	}
 }
+
+func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
+	t.Parallel()
+
+	args := buildPowerShellCommandArgs(`C:\repo\scripts\tinyterraform.ps1`, []string{"apply", "-auto-approve", "-input=false"})
+	expectedPrefix := []string{
+		"-NoProfile",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-Command",
+		"& { param([string]$ScriptPath, [Parameter(ValueFromRemainingArguments=$true)][string[]]$ForwardArgs) & $ScriptPath @ForwardArgs; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE } }",
+		`C:\repo\scripts\tinyterraform.ps1`,
+		"apply",
+		"-auto-approve",
+		"-input=false",
+	}
+
+	if len(args) != len(expectedPrefix) {
+		t.Fatalf("len(args) = %d, want %d", len(args), len(expectedPrefix))
+	}
+	for i, value := range expectedPrefix {
+		if args[i] != value {
+			t.Fatalf("args[%d] = %q, want %q", i, args[i], value)
+		}
+	}
+}
