@@ -46,6 +46,8 @@ type Document struct {
 	CosmosDatabases                []CosmosDatabase                `json:"cosmosDatabases,omitempty"`
 	CosmosContainers               []CosmosContainer               `json:"cosmosContainers,omitempty"`
 	CosmosDocuments                []CosmosDocument                `json:"cosmosDocuments,omitempty"`
+	VirtualNetworks                []VirtualNetwork                `json:"virtualNetworks,omitempty"`
+	Subnets                        []Subnet                        `json:"subnets,omitempty"`
 	PrivateDNSZones                []PrivateDNSZone                `json:"privateDnsZones,omitempty"`
 	PrivateDNSARecordSets          []PrivateDNSARecordSet          `json:"privateDnsARecordSets,omitempty"`
 	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
@@ -273,6 +275,31 @@ type CosmosDocument struct {
 	Body          map[string]any `json:"body"`
 	CreatedAt     string         `json:"createdAt"`
 	UpdatedAt     string         `json:"updatedAt"`
+}
+
+type VirtualNetwork struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Location          string            `json:"location"`
+	AddressPrefixes   []string          `json:"addressPrefixes"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type Subnet struct {
+	ID                 string `json:"id"`
+	SubscriptionID     string `json:"subscriptionId"`
+	ResourceGroupName  string `json:"resourceGroupName"`
+	VirtualNetworkName string `json:"virtualNetworkName"`
+	Name               string `json:"name"`
+	AddressPrefix      string `json:"addressPrefix"`
+	ProvisioningState  string `json:"provisioningState"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
 }
 
 type PrivateDNSZone struct {
@@ -551,6 +578,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.CosmosDocuments == nil {
 		doc.CosmosDocuments = []CosmosDocument{}
+	}
+	if doc.VirtualNetworks == nil {
+		doc.VirtualNetworks = []VirtualNetwork{}
+	}
+	if doc.Subnets == nil {
+		doc.Subnets = []Subnet{}
 	}
 	if doc.PrivateDNSZones == nil {
 		doc.PrivateDNSZones = []PrivateDNSZone{}
@@ -3482,6 +3515,307 @@ WHERE account_name = ? AND database_name = ? AND container_name = ? AND id = ?`,
 	return nil
 }
 
+func (s *Store) UpsertVirtualNetwork(subscriptionID, resourceGroupName, name, location string, addressPrefixes []string, tags map[string]string) (VirtualNetwork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return VirtualNetwork{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return VirtualNetwork{}, err
+	}
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	prefixes := make([]string, 0, len(addressPrefixes))
+	for _, prefix := range addressPrefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" {
+			continue
+		}
+		if _, _, parseErr := net.ParseCIDR(prefix); parseErr != nil {
+			return VirtualNetwork{}, fmt.Errorf("virtual network requires valid address prefixes")
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	if len(prefixes) == 0 {
+		return VirtualNetwork{}, fmt.Errorf("virtual network requires at least one address prefix")
+	}
+
+	prefixesJSON, err := json.Marshal(prefixes)
+	if err != nil {
+		return VirtualNetwork{}, fmt.Errorf("marshal virtual network prefixes: %w", err)
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return VirtualNetwork{}, fmt.Errorf("marshal virtual network tags: %w", err)
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM virtual_networks WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return VirtualNetwork{}, fmt.Errorf("read existing virtual network: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO virtual_networks (
+    id, subscription_id, resource_group_name, name, location, address_prefixes_json, tags_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    location = excluded.location,
+    address_prefixes_json = excluded.address_prefixes_json,
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, location, string(prefixesJSON), string(tagsJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return VirtualNetwork{}, fmt.Errorf("upsert virtual network: %w", err)
+	}
+
+	return s.getVirtualNetworkLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetVirtualNetwork(subscriptionID, resourceGroupName, name string) (VirtualNetwork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return VirtualNetwork{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return VirtualNetwork{}, err
+	}
+
+	return s.getVirtualNetworkLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) ListVirtualNetworks(subscriptionID, resourceGroupName string) ([]VirtualNetwork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, address_prefixes_json, tags_json, provisioning_state, created_at, updated_at
+FROM virtual_networks
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list virtual networks: %w", err)
+	}
+	defer rows.Close()
+
+	var networks []VirtualNetwork
+	for rows.Next() {
+		network, err := scanVirtualNetwork(rows)
+		if err != nil {
+			return nil, err
+		}
+		networks = append(networks, network)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate virtual networks: %w", err)
+	}
+	return networks, nil
+}
+
+func (s *Store) DeleteVirtualNetwork(subscriptionID, resourceGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM virtual_networks
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	if err != nil {
+		return fmt.Errorf("delete virtual network: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete virtual network rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := db.Exec(`
+DELETE FROM subnets
+WHERE subscription_id = ? AND resource_group_name = ? AND virtual_network_name = ?`, subscriptionID, resourceGroupName, name); err != nil {
+		return fmt.Errorf("delete subnets: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertSubnet(subscriptionID, resourceGroupName, virtualNetworkName, name, addressPrefix string) (Subnet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Subnet{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Subnet{}, err
+	}
+	addressPrefix = strings.TrimSpace(addressPrefix)
+	if _, _, parseErr := net.ParseCIDR(addressPrefix); parseErr != nil {
+		return Subnet{}, fmt.Errorf("subnet requires a valid address prefix")
+	}
+
+	var vnetExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM virtual_networks WHERE subscription_id = ? AND resource_group_name = ? AND name = ?
+)`, subscriptionID, resourceGroupName, virtualNetworkName).Scan(&vnetExists); err != nil {
+		return Subnet{}, fmt.Errorf("query virtual network: %w", err)
+	}
+	if !vnetExists {
+		return Subnet{}, sql.ErrNoRows
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s", subscriptionID, resourceGroupName, virtualNetworkName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM subnets WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return Subnet{}, fmt.Errorf("read existing subnet: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO subnets (
+    id, subscription_id, resource_group_name, virtual_network_name, name, address_prefix, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    address_prefix = excluded.address_prefix,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, virtualNetworkName, name, addressPrefix, "Succeeded", createdAt, nowValue); err != nil {
+		return Subnet{}, fmt.Errorf("upsert subnet: %w", err)
+	}
+
+	return s.getSubnetLocked(db, subscriptionID, resourceGroupName, virtualNetworkName, name)
+}
+
+func (s *Store) GetSubnet(subscriptionID, resourceGroupName, virtualNetworkName, name string) (Subnet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return Subnet{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return Subnet{}, err
+	}
+
+	return s.getSubnetLocked(db, subscriptionID, resourceGroupName, virtualNetworkName, name)
+}
+
+func (s *Store) ListSubnets(subscriptionID, resourceGroupName, virtualNetworkName string) ([]Subnet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, virtual_network_name, name, address_prefix, provisioning_state, created_at, updated_at
+FROM subnets
+WHERE subscription_id = ? AND resource_group_name = ? AND virtual_network_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName, virtualNetworkName)
+	if err != nil {
+		return nil, fmt.Errorf("list subnets: %w", err)
+	}
+	defer rows.Close()
+
+	var subnets []Subnet
+	for rows.Next() {
+		subnet, err := scanSubnet(rows)
+		if err != nil {
+			return nil, err
+		}
+		subnets = append(subnets, subnet)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate subnets: %w", err)
+	}
+	return subnets, nil
+}
+
+func (s *Store) DeleteSubnet(subscriptionID, resourceGroupName, virtualNetworkName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM subnets
+WHERE subscription_id = ? AND resource_group_name = ? AND virtual_network_name = ? AND name = ?`,
+		subscriptionID, resourceGroupName, virtualNetworkName, name,
+	)
+	if err != nil {
+		return fmt.Errorf("delete subnet: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete subnet rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertPrivateDNSZone(subscriptionID, resourceGroupName, name string, tags map[string]string) (PrivateDNSZone, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -4639,6 +4973,29 @@ CREATE TABLE IF NOT EXISTS cosmos_documents (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, database_name, container_name, id)
 );
+CREATE TABLE IF NOT EXISTS virtual_networks (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    address_prefixes_json TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS subnets (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    virtual_network_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    address_prefix TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS private_dns_zones (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -5277,6 +5634,46 @@ ORDER BY account_name, database_name, container_name, id`)
 		return Document{}, fmt.Errorf("iterate cosmos documents: %w", err)
 	}
 
+	virtualNetworkRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, address_prefixes_json, tags_json, provisioning_state, created_at, updated_at
+FROM virtual_networks
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read virtual networks: %w", err)
+	}
+	defer virtualNetworkRows.Close()
+
+	for virtualNetworkRows.Next() {
+		network, err := scanVirtualNetwork(virtualNetworkRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.VirtualNetworks = append(doc.VirtualNetworks, network)
+	}
+	if err := virtualNetworkRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate virtual networks: %w", err)
+	}
+
+	subnetRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, virtual_network_name, name, address_prefix, provisioning_state, created_at, updated_at
+FROM subnets
+ORDER BY subscription_id, resource_group_name, virtual_network_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read subnets: %w", err)
+	}
+	defer subnetRows.Close()
+
+	for subnetRows.Next() {
+		subnet, err := scanSubnet(subnetRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.Subnets = append(doc.Subnets, subnet)
+	}
+	if err := subnetRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate subnets: %w", err)
+	}
+
 	privateDNSZoneRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
 FROM private_dns_zones
@@ -5488,6 +5885,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.CosmosDocuments == nil {
 		doc.CosmosDocuments = []CosmosDocument{}
 	}
+	if doc.VirtualNetworks == nil {
+		doc.VirtualNetworks = []VirtualNetwork{}
+	}
+	if doc.Subnets == nil {
+		doc.Subnets = []Subnet{}
+	}
 	if doc.PrivateDNSZones == nil {
 		doc.PrivateDNSZones = []PrivateDNSZone{}
 	}
@@ -5555,6 +5958,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM cosmos_documents`); err != nil {
 		err = fmt.Errorf("clear cosmos documents: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM subnets`); err != nil {
+		err = fmt.Errorf("clear subnets: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM virtual_networks`); err != nil {
+		err = fmt.Errorf("clear virtual networks: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM cosmos_containers`); err != nil {
@@ -6143,6 +6554,75 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, network := range doc.VirtualNetworks {
+		if network.AddressPrefixes == nil {
+			network.AddressPrefixes = []string{}
+		}
+		if network.Tags == nil {
+			network.Tags = map[string]string{}
+		}
+		if network.ProvisioningState == "" {
+			network.ProvisioningState = "Succeeded"
+		}
+		if network.CreatedAt == "" {
+			network.CreatedAt = doc.UpdatedAt
+		}
+		if network.UpdatedAt == "" {
+			network.UpdatedAt = doc.UpdatedAt
+		}
+		prefixesJSON, marshalErr := json.Marshal(network.AddressPrefixes)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal virtual network prefixes: %w", marshalErr)
+			return err
+		}
+		tagsJSON, marshalErr := json.Marshal(network.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal virtual network tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO virtual_networks (id, subscription_id, resource_group_name, name, location, address_prefixes_json, tags_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			network.ID,
+			network.SubscriptionID,
+			network.ResourceGroupName,
+			network.Name,
+			network.Location,
+			string(prefixesJSON),
+			string(tagsJSON),
+			network.ProvisioningState,
+			network.CreatedAt,
+			network.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert virtual network: %w", err)
+			return err
+		}
+	}
+	for _, subnet := range doc.Subnets {
+		if subnet.ProvisioningState == "" {
+			subnet.ProvisioningState = "Succeeded"
+		}
+		if subnet.CreatedAt == "" {
+			subnet.CreatedAt = doc.UpdatedAt
+		}
+		if subnet.UpdatedAt == "" {
+			subnet.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO subnets (id, subscription_id, resource_group_name, virtual_network_name, name, address_prefix, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			subnet.ID,
+			subnet.SubscriptionID,
+			subnet.ResourceGroupName,
+			subnet.VirtualNetworkName,
+			subnet.Name,
+			subnet.AddressPrefix,
+			subnet.ProvisioningState,
+			subnet.CreatedAt,
+			subnet.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert subnet: %w", err)
+			return err
+		}
+	}
 	for _, zone := range doc.PrivateDNSZones {
 		if zone.Tags == nil {
 			zone.Tags = map[string]string{}
@@ -6408,6 +6888,8 @@ func newDocument() Document {
 		CosmosDatabases:                []CosmosDatabase{},
 		CosmosContainers:               []CosmosContainer{},
 		CosmosDocuments:                []CosmosDocument{},
+		VirtualNetworks:                []VirtualNetwork{},
+		Subnets:                        []Subnet{},
 		PrivateDNSZones:                []PrivateDNSZone{},
 		PrivateDNSARecordSets:          []PrivateDNSARecordSet{},
 		StorageAccounts:                []StorageAccount{},
@@ -6577,6 +7059,79 @@ func scanCosmosDocument(scanner interface {
 		document.Body = map[string]any{}
 	}
 	return document, nil
+}
+
+func (s *Store) getVirtualNetworkLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (VirtualNetwork, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, address_prefixes_json, tags_json, provisioning_state, created_at, updated_at
+FROM virtual_networks
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanVirtualNetwork(row)
+}
+
+func scanVirtualNetwork(scanner interface {
+	Scan(dest ...any) error
+}) (VirtualNetwork, error) {
+	var network VirtualNetwork
+	var prefixesJSON string
+	var tagsJSON string
+	if err := scanner.Scan(
+		&network.ID,
+		&network.SubscriptionID,
+		&network.ResourceGroupName,
+		&network.Name,
+		&network.Location,
+		&prefixesJSON,
+		&tagsJSON,
+		&network.ProvisioningState,
+		&network.CreatedAt,
+		&network.UpdatedAt,
+	); err != nil {
+		return VirtualNetwork{}, err
+	}
+	if err := json.Unmarshal([]byte(prefixesJSON), &network.AddressPrefixes); err != nil {
+		return VirtualNetwork{}, fmt.Errorf("parse virtual network prefixes: %w", err)
+	}
+	if network.AddressPrefixes == nil {
+		network.AddressPrefixes = []string{}
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &network.Tags); err != nil {
+		return VirtualNetwork{}, fmt.Errorf("parse virtual network tags: %w", err)
+	}
+	if network.Tags == nil {
+		network.Tags = map[string]string{}
+	}
+	return network, nil
+}
+
+func (s *Store) getSubnetLocked(db *sql.DB, subscriptionID, resourceGroupName, virtualNetworkName, name string) (Subnet, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, virtual_network_name, name, address_prefix, provisioning_state, created_at, updated_at
+FROM subnets
+WHERE subscription_id = ? AND resource_group_name = ? AND virtual_network_name = ? AND name = ?`,
+		subscriptionID, resourceGroupName, virtualNetworkName, name,
+	)
+	return scanSubnet(row)
+}
+
+func scanSubnet(scanner interface {
+	Scan(dest ...any) error
+}) (Subnet, error) {
+	var subnet Subnet
+	if err := scanner.Scan(
+		&subnet.ID,
+		&subnet.SubscriptionID,
+		&subnet.ResourceGroupName,
+		&subnet.VirtualNetworkName,
+		&subnet.Name,
+		&subnet.AddressPrefix,
+		&subnet.ProvisioningState,
+		&subnet.CreatedAt,
+		&subnet.UpdatedAt,
+	); err != nil {
+		return Subnet{}, err
+	}
+	return subnet, nil
 }
 
 func (s *Store) getPrivateDNSZoneLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (PrivateDNSZone, error) {

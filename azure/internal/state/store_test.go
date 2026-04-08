@@ -1308,6 +1308,115 @@ func TestSnapshotAndRestorePreserveCosmosState(t *testing.T) {
 	}
 }
 
+func TestVirtualNetworkCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	network, err := store.UpsertVirtualNetwork("sub-123", "rg-test", "vnet-test", "westus2", []string{"10.0.0.0/16"}, map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertVirtualNetwork() error = %v", err)
+	}
+	if network.Name != "vnet-test" {
+		t.Fatalf("Name = %q, want %q", network.Name, "vnet-test")
+	}
+
+	gotNetwork, err := store.GetVirtualNetwork("sub-123", "rg-test", "vnet-test")
+	if err != nil {
+		t.Fatalf("GetVirtualNetwork() error = %v", err)
+	}
+	if len(gotNetwork.AddressPrefixes) != 1 || gotNetwork.AddressPrefixes[0] != "10.0.0.0/16" {
+		t.Fatalf("AddressPrefixes = %#v, want %#v", gotNetwork.AddressPrefixes, []string{"10.0.0.0/16"})
+	}
+
+	networks, err := store.ListVirtualNetworks("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListVirtualNetworks() error = %v", err)
+	}
+	if len(networks) != 1 {
+		t.Fatalf("len(networks) = %d, want %d", len(networks), 1)
+	}
+
+	subnet, err := store.UpsertSubnet("sub-123", "rg-test", "vnet-test", "frontend", "10.0.1.0/24")
+	if err != nil {
+		t.Fatalf("UpsertSubnet() error = %v", err)
+	}
+	if subnet.Name != "frontend" {
+		t.Fatalf("Name = %q, want %q", subnet.Name, "frontend")
+	}
+
+	gotSubnet, err := store.GetSubnet("sub-123", "rg-test", "vnet-test", "frontend")
+	if err != nil {
+		t.Fatalf("GetSubnet() error = %v", err)
+	}
+	if gotSubnet.AddressPrefix != "10.0.1.0/24" {
+		t.Fatalf("AddressPrefix = %q, want %q", gotSubnet.AddressPrefix, "10.0.1.0/24")
+	}
+
+	subnets, err := store.ListSubnets("sub-123", "rg-test", "vnet-test")
+	if err != nil {
+		t.Fatalf("ListSubnets() error = %v", err)
+	}
+	if len(subnets) != 1 {
+		t.Fatalf("len(subnets) = %d, want %d", len(subnets), 1)
+	}
+
+	if err := store.DeleteSubnet("sub-123", "rg-test", "vnet-test", "frontend"); err != nil {
+		t.Fatalf("DeleteSubnet() error = %v", err)
+	}
+	if err := store.DeleteVirtualNetwork("sub-123", "rg-test", "vnet-test"); err != nil {
+		t.Fatalf("DeleteVirtualNetwork() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreserveVirtualNetworkState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertVirtualNetwork("sub-123", "rg-test", "vnet-test", "westus2", []string{"10.0.0.0/16"}, nil); err != nil {
+		t.Fatalf("UpsertVirtualNetwork() error = %v", err)
+	}
+	if _, err := store.UpsertSubnet("sub-123", "rg-test", "vnet-test", "frontend", "10.0.1.0/24"); err != nil {
+		t.Fatalf("UpsertSubnet() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "vnet.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	subnet, err := restoreStore.GetSubnet("sub-123", "rg-test", "vnet-test", "frontend")
+	if err != nil {
+		t.Fatalf("GetSubnet() error = %v", err)
+	}
+	if subnet.AddressPrefix != "10.0.1.0/24" {
+		t.Fatalf("AddressPrefix = %q, want %q", subnet.AddressPrefix, "10.0.1.0/24")
+	}
+}
+
 func TestPrivateDNSCRUD(t *testing.T) {
 	t.Parallel()
 
