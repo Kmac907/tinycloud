@@ -11,14 +11,14 @@
   <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
 </p>
 
-<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, secrets, and messaging workflows.</sub></p>
+<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, secrets, messaging, and event streaming workflows.</sub></p>
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
 - metadata, OAuth, and minimal IMDS-style managed identity endpoints
-- real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, and Service Bus behavior on dedicated service ports
+- real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, Service Bus, and Event Hubs behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
 TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `14` implemented
+- `15` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -45,6 +45,7 @@ Current status across the listed emulator areas:
 | Admin/runtime endpoints | Implemented | Health, metrics, reset, snapshot, seed |
 | Key Vault secrets data-plane | Implemented | Secret set/get/list/delete on the dedicated Key Vault listener |
 | Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
+| Event Hubs | Implemented | Namespaces, hubs, publish, and ordered event reads |
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
 | Cosmos DB | Implemented | Account, database, container, and document CRUD on the dedicated Cosmos listener |
@@ -96,6 +97,11 @@ Current status across the listed emulator areas:
   - send/receive/delete queue messages
   - create/list topics and subscriptions
   - publish/receive/delete topic subscription messages
+- Event Hubs on its own port:
+  - create/list namespaces
+  - create/list hubs
+  - publish events
+  - read ordered event streams from a sequence number
 - App Configuration on its own port:
   - create/list config stores
   - put/get/list/delete key-values
@@ -122,6 +128,7 @@ All service listeners except the advertised HTTPS management port are active tod
 | `4582` | Active | App Configuration data-plane |
 | `4583` | Active | Cosmos DB data-plane |
 | `4584/udp` | Active | private DNS resolver |
+| `4585` | Active | Event Hubs data-plane |
 
 ## How To Interact With The Emulated Azure Environment
 
@@ -318,6 +325,24 @@ Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/snapshot
 Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/reset
 ```
 
+### 12. Event Hubs Data-Plane
+
+Event Hubs runs on `http://127.0.0.1:4585`.
+
+Create a namespace and hub:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces" -Body '{"name":"local-streaming"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces/local-streaming/hubs" -Body '{"name":"orders"}' -ContentType "application/json"
+```
+
+Publish and read events:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces/local-streaming/hubs/orders/events" -Body '{"body":"{\"event\":\"created\"}","partitionKey":"tenant-a"}' -ContentType "application/json"
+Invoke-RestMethod "http://127.0.0.1:4585/namespaces/local-streaming/hubs/orders/events?fromSequenceNumber=1&maxEvents=10"
+```
+
 ## CLI Integration
 
 The built-in CLI manages the local runtime and prints environment settings for external tools:
@@ -436,6 +461,7 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_APPCONFIG_PORT` | `4582` | App Configuration listener |
 | `TINYCLOUD_COSMOS_PORT` | `4583` | Cosmos DB listener |
 | `TINYCLOUD_DNS_PORT` | `4584` | private DNS UDP listener |
+| `TINYCLOUD_EVENTHUBS_PORT` | `4585` | Event Hubs listener |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |
@@ -472,6 +498,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
 Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01" -Body '{}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces" -Body '{"name":"local-streaming"}' -ContentType "application/json"
 ```
 
 ### Docker
@@ -488,6 +515,7 @@ docker run --rm `
   -p 4582:4582 `
   -p 4583:4583 `
   -p 4584:4584/udp `
+  -p 4585:4585 `
   -v "${PWD}\data:/var/lib/tinycloud" `
   tinycloud-azure
 ```

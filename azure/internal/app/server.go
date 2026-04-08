@@ -17,6 +17,7 @@ import (
 	"tinycloud/internal/providers/appconfig"
 	"tinycloud/internal/providers/cosmos"
 	"tinycloud/internal/providers/dns"
+	"tinycloud/internal/providers/eventhubs"
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
 	"tinycloud/internal/providers/servicebus"
@@ -130,6 +131,14 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	eventHubsMux := http.NewServeMux()
+	eventhubs.NewHandler(s.store, s.cfg).Register(eventHubsMux)
+	eventHubsServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.EventHubs,
+		Handler:           chain(eventHubsMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	dnsServer := dns.NewServer(s.store, s.cfg, s.logger)
 
 	s.logger.Info("tinycloud server starting", map[string]any{
@@ -141,11 +150,12 @@ func (s *Server) Run(ctx context.Context) error {
 		"keyVaultAddr":   s.cfg.ListenHost + ":" + s.cfg.KeyVault,
 		"appConfigAddr":  s.cfg.ListenHost + ":" + s.cfg.AppConfig,
 		"cosmosAddr":     s.cfg.ListenHost + ":" + s.cfg.Cosmos,
+		"eventHubsAddr":  s.cfg.ListenHost + ":" + s.cfg.EventHubs,
 		"dnsAddr":        s.cfg.ListenHost + ":" + s.cfg.DNS,
 		"dataRoot":       s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 9)
+	errCh := make(chan error, 10)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -171,6 +181,9 @@ func (s *Server) Run(ctx context.Context) error {
 		errCh <- cosmosServer.ListenAndServe()
 	}()
 	go func() {
+		errCh <- eventHubsServer.ListenAndServe()
+	}()
+	go func() {
 		errCh <- dnsServer.ListenAndServe()
 	}()
 
@@ -186,6 +199,9 @@ func (s *Server) Run(ctx context.Context) error {
 			return err
 		}
 		if err := cosmosServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if err := eventHubsServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		if err := dnsServer.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -210,6 +226,7 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = appConfigServer.Shutdown(shutdownCtx)
 		_ = cosmosServer.Shutdown(shutdownCtx)
+		_ = eventHubsServer.Shutdown(shutdownCtx)
 		_ = dnsServer.Close()
 		_ = queueServer.Shutdown(shutdownCtx)
 		_ = tableServer.Shutdown(shutdownCtx)

@@ -126,6 +126,7 @@ func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
 			fmt.Sprintf("TINY_APPCONFIG_ENDPOINT=%s", cfg.AppConfigURL()),
 			fmt.Sprintf("TINY_COSMOS_ENDPOINT=%s", cfg.CosmosURL()),
 			fmt.Sprintf("TINY_DNS_SERVER=%s", cfg.DNSAddress()),
+			fmt.Sprintf("TINY_EVENTHUBS_ENDPOINT=%s", cfg.EventHubsURL()),
 			fmt.Sprintf("TINY_OAUTH_TOKEN=%s", cfg.OAuthTokenURL()),
 		}
 		_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))
@@ -140,6 +141,7 @@ func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
 			fmt.Sprintf("AZURE_APPCONFIG_ENDPOINT=%s", cfg.AppConfigURL()),
 			fmt.Sprintf("AZURE_COSMOS_ENDPOINT=%s", cfg.CosmosURL()),
 			fmt.Sprintf("AZURE_PRIVATE_DNS_SERVER=%s", cfg.DNSAddress()),
+			fmt.Sprintf("AZURE_EVENTHUBS_ENDPOINT=%s", cfg.EventHubsURL()),
 			fmt.Sprintf("AZURE_OAUTH_TOKEN_URL=%s", cfg.OAuthTokenURL()),
 		}
 		_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))

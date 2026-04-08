@@ -19,6 +19,7 @@ type Config struct {
 	AppConfig      string
 	Cosmos         string
 	DNS            string
+	EventHubs      string
 	DataRoot       string
 	TenantID       string
 	SubscriptionID string
@@ -48,6 +49,7 @@ func FromEnv() Config {
 		AppConfig:      envOrDefault("TINYCLOUD_APPCONFIG_PORT", "4582"),
 		Cosmos:         envOrDefault("TINYCLOUD_COSMOS_PORT", "4583"),
 		DNS:            envOrDefault("TINYCLOUD_DNS_PORT", "4584"),
+		EventHubs:      envOrDefault("TINYCLOUD_EVENTHUBS_PORT", "4585"),
 		DataRoot:       envOrDefault("TINYCLOUD_DATA_ROOT", defaultDataRoot()),
 		TenantID:       envOrDefault("TINYCLOUD_TENANT_ID", defaultTenantID()),
 		SubscriptionID: envOrDefault("TINYCLOUD_SUBSCRIPTION_ID", defaultSubscriptionID()),
@@ -110,6 +112,10 @@ func (c Config) DNSURL() string {
 	return fmt.Sprintf("udp://%s", c.DNSAddress())
 }
 
+func (c Config) EventHubsURL() string {
+	return fmt.Sprintf("http://%s:%s", c.AdvertiseHost, c.EventHubs)
+}
+
 func (c Config) OAuthTokenURL() string {
 	return fmt.Sprintf("%s/oauth/token", c.ManagementHTTPURL())
 }
@@ -143,6 +149,7 @@ func (c Config) EndpointMap() map[string]string {
 		"appConfig":       c.AppConfigURL(),
 		"cosmos":          c.CosmosURL(),
 		"dns":             c.DNSURL(),
+		"eventHubs":       c.EventHubsURL(),
 	}
 }
 

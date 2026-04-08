@@ -58,6 +58,7 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"appConfig": h.cfg.AdvertiseHost + ":" + h.cfg.AppConfig,
 			"cosmos":    h.cfg.AdvertiseHost + ":" + h.cfg.Cosmos,
 			"dns":       h.cfg.DNSAddress(),
+			"eventHubs": h.cfg.AdvertiseHost + ":" + h.cfg.EventHubs,
 		},
 		"services": map[string]string{
 			"blob":       h.cfg.BlobURL(),
@@ -68,6 +69,7 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"appConfig":  h.cfg.AppConfigURL(),
 			"cosmos":     h.cfg.CosmosURL(),
 			"dns":        h.cfg.DNSURL(),
+			"eventHubs":  h.cfg.EventHubsURL(),
 		},
 	})
 }

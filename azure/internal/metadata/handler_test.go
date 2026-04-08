@@ -65,6 +65,9 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Services["dns"] != cfg.DNSURL() {
 		t.Fatalf("services.dns = %q, want %q", body.Services["dns"], cfg.DNSURL())
 	}
+	if body.Services["eventHubs"] != cfg.EventHubsURL() {
+		t.Fatalf("services.eventHubs = %q, want %q", body.Services["eventHubs"], cfg.EventHubsURL())
+	}
 	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
 		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)
 	}
@@ -79,6 +82,9 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 	if body.Suffixes["dns"] != cfg.DNSAddress() {
 		t.Fatalf("suffixes.dns = %q, want %q", body.Suffixes["dns"], cfg.DNSAddress())
+	}
+	if body.Suffixes["eventHubs"] != cfg.AdvertiseHost+":"+cfg.EventHubs {
+		t.Fatalf("suffixes.eventHubs = %q, want %q", body.Suffixes["eventHubs"], cfg.AdvertiseHost+":"+cfg.EventHubs)
 	}
 	providers, _ := body.ResourceMgr["providers"].([]any)
 	if len(providers) != 4 {
