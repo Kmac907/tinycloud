@@ -48,6 +48,8 @@ type Document struct {
 	CosmosDocuments                []CosmosDocument                `json:"cosmosDocuments,omitempty"`
 	VirtualNetworks                []VirtualNetwork                `json:"virtualNetworks,omitempty"`
 	Subnets                        []Subnet                        `json:"subnets,omitempty"`
+	NetworkSecurityGroups          []NetworkSecurityGroup          `json:"networkSecurityGroups,omitempty"`
+	NetworkSecurityRules           []NetworkSecurityRule           `json:"networkSecurityRules,omitempty"`
 	PrivateDNSZones                []PrivateDNSZone                `json:"privateDnsZones,omitempty"`
 	PrivateDNSARecordSets          []PrivateDNSARecordSet          `json:"privateDnsARecordSets,omitempty"`
 	StorageAccounts                []StorageAccount                `json:"storageAccounts,omitempty"`
@@ -300,6 +302,37 @@ type Subnet struct {
 	ProvisioningState  string `json:"provisioningState"`
 	CreatedAt          string `json:"createdAt"`
 	UpdatedAt          string `json:"updatedAt"`
+}
+
+type NetworkSecurityGroup struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Location          string            `json:"location"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type NetworkSecurityRule struct {
+	ID                       string `json:"id"`
+	SubscriptionID           string `json:"subscriptionId"`
+	ResourceGroupName        string `json:"resourceGroupName"`
+	NetworkSecurityGroupName string `json:"networkSecurityGroupName"`
+	Name                     string `json:"name"`
+	Access                   string `json:"access"`
+	Direction                string `json:"direction"`
+	Protocol                 string `json:"protocol"`
+	SourceAddressPrefix      string `json:"sourceAddressPrefix"`
+	SourcePortRange          string `json:"sourcePortRange"`
+	DestinationAddressPrefix string `json:"destinationAddressPrefix"`
+	DestinationPortRange     string `json:"destinationPortRange"`
+	Priority                 int    `json:"priority"`
+	ProvisioningState        string `json:"provisioningState"`
+	CreatedAt                string `json:"createdAt"`
+	UpdatedAt                string `json:"updatedAt"`
 }
 
 type PrivateDNSZone struct {
@@ -584,6 +617,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.Subnets == nil {
 		doc.Subnets = []Subnet{}
+	}
+	if doc.NetworkSecurityGroups == nil {
+		doc.NetworkSecurityGroups = []NetworkSecurityGroup{}
+	}
+	if doc.NetworkSecurityRules == nil {
+		doc.NetworkSecurityRules = []NetworkSecurityRule{}
 	}
 	if doc.PrivateDNSZones == nil {
 		doc.PrivateDNSZones = []PrivateDNSZone{}
@@ -3816,6 +3855,307 @@ WHERE subscription_id = ? AND resource_group_name = ? AND virtual_network_name =
 	return nil
 }
 
+func (s *Store) UpsertNetworkSecurityGroup(subscriptionID, resourceGroupName, name, location string, tags map[string]string) (NetworkSecurityGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return NetworkSecurityGroup{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return NetworkSecurityGroup{}, err
+	}
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return NetworkSecurityGroup{}, fmt.Errorf("marshal network security group tags: %w", err)
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM network_security_groups WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return NetworkSecurityGroup{}, fmt.Errorf("read existing network security group: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO network_security_groups (
+    id, subscription_id, resource_group_name, name, location, tags_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    location = excluded.location,
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, location, string(tagsJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return NetworkSecurityGroup{}, fmt.Errorf("upsert network security group: %w", err)
+	}
+
+	return s.getNetworkSecurityGroupLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetNetworkSecurityGroup(subscriptionID, resourceGroupName, name string) (NetworkSecurityGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return NetworkSecurityGroup{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return NetworkSecurityGroup{}, err
+	}
+
+	return s.getNetworkSecurityGroupLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) ListNetworkSecurityGroups(subscriptionID, resourceGroupName string) ([]NetworkSecurityGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, tags_json, provisioning_state, created_at, updated_at
+FROM network_security_groups
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list network security groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []NetworkSecurityGroup
+	for rows.Next() {
+		group, err := scanNetworkSecurityGroup(rows)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, group)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate network security groups: %w", err)
+	}
+	return groups, nil
+}
+
+func (s *Store) DeleteNetworkSecurityGroup(subscriptionID, resourceGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM network_security_groups
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	if err != nil {
+		return fmt.Errorf("delete network security group: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete network security group rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := db.Exec(`
+DELETE FROM network_security_rules
+WHERE subscription_id = ? AND resource_group_name = ? AND network_security_group_name = ?`, subscriptionID, resourceGroupName, name); err != nil {
+		return fmt.Errorf("delete network security rules: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertNetworkSecurityRule(subscriptionID, resourceGroupName, networkSecurityGroupName, name, access, direction, protocol, sourceAddressPrefix, sourcePortRange, destinationAddressPrefix, destinationPortRange string, priority int) (NetworkSecurityRule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return NetworkSecurityRule{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return NetworkSecurityRule{}, err
+	}
+
+	var groupExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM network_security_groups WHERE subscription_id = ? AND resource_group_name = ? AND name = ?
+)`, subscriptionID, resourceGroupName, networkSecurityGroupName).Scan(&groupExists); err != nil {
+		return NetworkSecurityRule{}, fmt.Errorf("query network security group: %w", err)
+	}
+	if !groupExists {
+		return NetworkSecurityRule{}, sql.ErrNoRows
+	}
+	if priority < 100 || priority > 4096 {
+		return NetworkSecurityRule{}, fmt.Errorf("network security rule requires a priority between 100 and 4096")
+	}
+
+	var existingID string
+	err = db.QueryRow(`
+SELECT id FROM network_security_rules
+WHERE subscription_id = ? AND resource_group_name = ? AND network_security_group_name = ? AND priority = ?`,
+		subscriptionID, resourceGroupName, networkSecurityGroupName, priority,
+	).Scan(&existingID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return NetworkSecurityRule{}, fmt.Errorf("query network security rule priority: %w", err)
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s/securityRules/%s", subscriptionID, resourceGroupName, networkSecurityGroupName, name)
+	if existingID != "" && existingID != id {
+		return NetworkSecurityRule{}, fmt.Errorf("network security rule priority already exists")
+	}
+
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM network_security_rules WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return NetworkSecurityRule{}, fmt.Errorf("read existing network security rule: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO network_security_rules (
+    id, subscription_id, resource_group_name, network_security_group_name, name, access, direction, protocol, source_address_prefix, source_port_range, destination_address_prefix, destination_port_range, priority, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    access = excluded.access,
+    direction = excluded.direction,
+    protocol = excluded.protocol,
+    source_address_prefix = excluded.source_address_prefix,
+    source_port_range = excluded.source_port_range,
+    destination_address_prefix = excluded.destination_address_prefix,
+    destination_port_range = excluded.destination_port_range,
+    priority = excluded.priority,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, networkSecurityGroupName, name, access, direction, protocol, sourceAddressPrefix, sourcePortRange, destinationAddressPrefix, destinationPortRange, priority, "Succeeded", createdAt, nowValue); err != nil {
+		return NetworkSecurityRule{}, fmt.Errorf("upsert network security rule: %w", err)
+	}
+
+	return s.getNetworkSecurityRuleLocked(db, subscriptionID, resourceGroupName, networkSecurityGroupName, name)
+}
+
+func (s *Store) GetNetworkSecurityRule(subscriptionID, resourceGroupName, networkSecurityGroupName, name string) (NetworkSecurityRule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return NetworkSecurityRule{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return NetworkSecurityRule{}, err
+	}
+
+	return s.getNetworkSecurityRuleLocked(db, subscriptionID, resourceGroupName, networkSecurityGroupName, name)
+}
+
+func (s *Store) ListNetworkSecurityRules(subscriptionID, resourceGroupName, networkSecurityGroupName string) ([]NetworkSecurityRule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, network_security_group_name, name, access, direction, protocol, source_address_prefix, source_port_range, destination_address_prefix, destination_port_range, priority, provisioning_state, created_at, updated_at
+FROM network_security_rules
+WHERE subscription_id = ? AND resource_group_name = ? AND network_security_group_name = ?
+ORDER BY priority, name`, subscriptionID, resourceGroupName, networkSecurityGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list network security rules: %w", err)
+	}
+	defer rows.Close()
+
+	var rules []NetworkSecurityRule
+	for rows.Next() {
+		rule, err := scanNetworkSecurityRule(rows)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate network security rules: %w", err)
+	}
+	return rules, nil
+}
+
+func (s *Store) DeleteNetworkSecurityRule(subscriptionID, resourceGroupName, networkSecurityGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM network_security_rules
+WHERE subscription_id = ? AND resource_group_name = ? AND network_security_group_name = ? AND name = ?`,
+		subscriptionID, resourceGroupName, networkSecurityGroupName, name,
+	)
+	if err != nil {
+		return fmt.Errorf("delete network security rule: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete network security rule rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertPrivateDNSZone(subscriptionID, resourceGroupName, name string, tags map[string]string) (PrivateDNSZone, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -4996,6 +5336,35 @@ CREATE TABLE IF NOT EXISTS subnets (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS network_security_groups (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS network_security_rules (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    network_security_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    access TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    protocol TEXT NOT NULL,
+    source_address_prefix TEXT NOT NULL,
+    source_port_range TEXT NOT NULL,
+    destination_address_prefix TEXT NOT NULL,
+    destination_port_range TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS private_dns_zones (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -5673,6 +6042,42 @@ ORDER BY subscription_id, resource_group_name, virtual_network_name, name`)
 	if err := subnetRows.Err(); err != nil {
 		return Document{}, fmt.Errorf("iterate subnets: %w", err)
 	}
+	networkSecurityGroupRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, tags_json, provisioning_state, created_at, updated_at
+FROM network_security_groups
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("query network security groups: %w", err)
+	}
+	defer networkSecurityGroupRows.Close()
+	for networkSecurityGroupRows.Next() {
+		group, err := scanNetworkSecurityGroup(networkSecurityGroupRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.NetworkSecurityGroups = append(doc.NetworkSecurityGroups, group)
+	}
+	if err := networkSecurityGroupRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate network security groups: %w", err)
+	}
+	networkSecurityRuleRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, network_security_group_name, name, access, direction, protocol, source_address_prefix, source_port_range, destination_address_prefix, destination_port_range, priority, provisioning_state, created_at, updated_at
+FROM network_security_rules
+ORDER BY subscription_id, resource_group_name, network_security_group_name, priority, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("query network security rules: %w", err)
+	}
+	defer networkSecurityRuleRows.Close()
+	for networkSecurityRuleRows.Next() {
+		rule, err := scanNetworkSecurityRule(networkSecurityRuleRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.NetworkSecurityRules = append(doc.NetworkSecurityRules, rule)
+	}
+	if err := networkSecurityRuleRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate network security rules: %w", err)
+	}
 
 	privateDNSZoneRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, tags_json, provisioning_state, created_at, updated_at
@@ -5890,6 +6295,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if doc.Subnets == nil {
 		doc.Subnets = []Subnet{}
+	}
+	if doc.NetworkSecurityGroups == nil {
+		doc.NetworkSecurityGroups = []NetworkSecurityGroup{}
+	}
+	if doc.NetworkSecurityRules == nil {
+		doc.NetworkSecurityRules = []NetworkSecurityRule{}
 	}
 	if doc.PrivateDNSZones == nil {
 		doc.PrivateDNSZones = []PrivateDNSZone{}
@@ -6623,6 +7034,73 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, group := range doc.NetworkSecurityGroups {
+		if group.Tags == nil {
+			group.Tags = map[string]string{}
+		}
+		if group.ProvisioningState == "" {
+			group.ProvisioningState = "Succeeded"
+		}
+		if group.CreatedAt == "" {
+			group.CreatedAt = doc.UpdatedAt
+		}
+		if group.UpdatedAt == "" {
+			group.UpdatedAt = doc.UpdatedAt
+		}
+		tagsJSON, marshalErr := json.Marshal(group.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal network security group tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO network_security_groups (id, subscription_id, resource_group_name, name, location, tags_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			group.ID,
+			group.SubscriptionID,
+			group.ResourceGroupName,
+			group.Name,
+			group.Location,
+			string(tagsJSON),
+			group.ProvisioningState,
+			group.CreatedAt,
+			group.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert network security group: %w", err)
+			return err
+		}
+	}
+	for _, rule := range doc.NetworkSecurityRules {
+		if rule.ProvisioningState == "" {
+			rule.ProvisioningState = "Succeeded"
+		}
+		if rule.CreatedAt == "" {
+			rule.CreatedAt = doc.UpdatedAt
+		}
+		if rule.UpdatedAt == "" {
+			rule.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO network_security_rules (id, subscription_id, resource_group_name, network_security_group_name, name, access, direction, protocol, source_address_prefix, source_port_range, destination_address_prefix, destination_port_range, priority, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			rule.ID,
+			rule.SubscriptionID,
+			rule.ResourceGroupName,
+			rule.NetworkSecurityGroupName,
+			rule.Name,
+			rule.Access,
+			rule.Direction,
+			rule.Protocol,
+			rule.SourceAddressPrefix,
+			rule.SourcePortRange,
+			rule.DestinationAddressPrefix,
+			rule.DestinationPortRange,
+			rule.Priority,
+			rule.ProvisioningState,
+			rule.CreatedAt,
+			rule.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert network security rule: %w", err)
+			return err
+		}
+	}
 	for _, zone := range doc.PrivateDNSZones {
 		if zone.Tags == nil {
 			zone.Tags = map[string]string{}
@@ -6890,6 +7368,8 @@ func newDocument() Document {
 		CosmosDocuments:                []CosmosDocument{},
 		VirtualNetworks:                []VirtualNetwork{},
 		Subnets:                        []Subnet{},
+		NetworkSecurityGroups:          []NetworkSecurityGroup{},
+		NetworkSecurityRules:           []NetworkSecurityRule{},
 		PrivateDNSZones:                []PrivateDNSZone{},
 		PrivateDNSARecordSets:          []PrivateDNSARecordSet{},
 		StorageAccounts:                []StorageAccount{},
@@ -7132,6 +7612,78 @@ func scanSubnet(scanner interface {
 		return Subnet{}, err
 	}
 	return subnet, nil
+}
+
+func (s *Store) getNetworkSecurityGroupLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (NetworkSecurityGroup, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, tags_json, provisioning_state, created_at, updated_at
+FROM network_security_groups
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanNetworkSecurityGroup(row)
+}
+
+func scanNetworkSecurityGroup(scanner interface {
+	Scan(dest ...any) error
+}) (NetworkSecurityGroup, error) {
+	var group NetworkSecurityGroup
+	var tagsJSON string
+	if err := scanner.Scan(
+		&group.ID,
+		&group.SubscriptionID,
+		&group.ResourceGroupName,
+		&group.Name,
+		&group.Location,
+		&tagsJSON,
+		&group.ProvisioningState,
+		&group.CreatedAt,
+		&group.UpdatedAt,
+	); err != nil {
+		return NetworkSecurityGroup{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &group.Tags); err != nil {
+		return NetworkSecurityGroup{}, fmt.Errorf("parse network security group tags: %w", err)
+	}
+	if group.Tags == nil {
+		group.Tags = map[string]string{}
+	}
+	return group, nil
+}
+
+func (s *Store) getNetworkSecurityRuleLocked(db *sql.DB, subscriptionID, resourceGroupName, networkSecurityGroupName, name string) (NetworkSecurityRule, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, network_security_group_name, name, access, direction, protocol, source_address_prefix, source_port_range, destination_address_prefix, destination_port_range, priority, provisioning_state, created_at, updated_at
+FROM network_security_rules
+WHERE subscription_id = ? AND resource_group_name = ? AND network_security_group_name = ? AND name = ?`,
+		subscriptionID, resourceGroupName, networkSecurityGroupName, name,
+	)
+	return scanNetworkSecurityRule(row)
+}
+
+func scanNetworkSecurityRule(scanner interface {
+	Scan(dest ...any) error
+}) (NetworkSecurityRule, error) {
+	var rule NetworkSecurityRule
+	if err := scanner.Scan(
+		&rule.ID,
+		&rule.SubscriptionID,
+		&rule.ResourceGroupName,
+		&rule.NetworkSecurityGroupName,
+		&rule.Name,
+		&rule.Access,
+		&rule.Direction,
+		&rule.Protocol,
+		&rule.SourceAddressPrefix,
+		&rule.SourcePortRange,
+		&rule.DestinationAddressPrefix,
+		&rule.DestinationPortRange,
+		&rule.Priority,
+		&rule.ProvisioningState,
+		&rule.CreatedAt,
+		&rule.UpdatedAt,
+	); err != nil {
+		return NetworkSecurityRule{}, err
+	}
+	return rule, nil
 }
 
 func (s *Store) getPrivateDNSZoneLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (PrivateDNSZone, error) {

@@ -1417,6 +1417,115 @@ func TestSnapshotAndRestorePreserveVirtualNetworkState(t *testing.T) {
 	}
 }
 
+func TestNetworkSecurityGroupCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	group, err := store.UpsertNetworkSecurityGroup("sub-123", "rg-test", "nsg-test", "westus2", map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertNetworkSecurityGroup() error = %v", err)
+	}
+	if group.Name != "nsg-test" {
+		t.Fatalf("Name = %q, want %q", group.Name, "nsg-test")
+	}
+
+	gotGroup, err := store.GetNetworkSecurityGroup("sub-123", "rg-test", "nsg-test")
+	if err != nil {
+		t.Fatalf("GetNetworkSecurityGroup() error = %v", err)
+	}
+	if gotGroup.Tags["env"] != "test" {
+		t.Fatalf("Tags[env] = %q, want %q", gotGroup.Tags["env"], "test")
+	}
+
+	groups, err := store.ListNetworkSecurityGroups("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListNetworkSecurityGroups() error = %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("len(groups) = %d, want %d", len(groups), 1)
+	}
+
+	rule, err := store.UpsertNetworkSecurityRule("sub-123", "rg-test", "nsg-test", "allow-https", "Allow", "Inbound", "Tcp", "*", "*", "*", "443", 100)
+	if err != nil {
+		t.Fatalf("UpsertNetworkSecurityRule() error = %v", err)
+	}
+	if rule.Priority != 100 {
+		t.Fatalf("Priority = %d, want %d", rule.Priority, 100)
+	}
+
+	gotRule, err := store.GetNetworkSecurityRule("sub-123", "rg-test", "nsg-test", "allow-https")
+	if err != nil {
+		t.Fatalf("GetNetworkSecurityRule() error = %v", err)
+	}
+	if gotRule.DestinationPortRange != "443" {
+		t.Fatalf("DestinationPortRange = %q, want %q", gotRule.DestinationPortRange, "443")
+	}
+
+	rules, err := store.ListNetworkSecurityRules("sub-123", "rg-test", "nsg-test")
+	if err != nil {
+		t.Fatalf("ListNetworkSecurityRules() error = %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("len(rules) = %d, want %d", len(rules), 1)
+	}
+
+	if err := store.DeleteNetworkSecurityRule("sub-123", "rg-test", "nsg-test", "allow-https"); err != nil {
+		t.Fatalf("DeleteNetworkSecurityRule() error = %v", err)
+	}
+	if err := store.DeleteNetworkSecurityGroup("sub-123", "rg-test", "nsg-test"); err != nil {
+		t.Fatalf("DeleteNetworkSecurityGroup() error = %v", err)
+	}
+}
+
+func TestSnapshotAndRestorePreserveNetworkSecurityState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertNetworkSecurityGroup("sub-123", "rg-test", "nsg-test", "westus2", nil); err != nil {
+		t.Fatalf("UpsertNetworkSecurityGroup() error = %v", err)
+	}
+	if _, err := store.UpsertNetworkSecurityRule("sub-123", "rg-test", "nsg-test", "allow-https", "Allow", "Inbound", "Tcp", "*", "*", "*", "443", 100); err != nil {
+		t.Fatalf("UpsertNetworkSecurityRule() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "nsg.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	rule, err := restoreStore.GetNetworkSecurityRule("sub-123", "rg-test", "nsg-test", "allow-https")
+	if err != nil {
+		t.Fatalf("GetNetworkSecurityRule() error = %v", err)
+	}
+	if rule.Priority != 100 {
+		t.Fatalf("Priority = %d, want %d", rule.Priority, 100)
+	}
+}
+
 func TestPrivateDNSCRUD(t *testing.T) {
 	t.Parallel()
 
