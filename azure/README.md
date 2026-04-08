@@ -1,6 +1,8 @@
-![TinyCloud Logo](assets/logo.png)
+<p align="center">
+  <img src="./assets/logo.png" width="300" />
+</p>
 
-# TinyCloud Azure Emulator
+<h1 align="center">TinyCloud Azure Emulator<h/1>
 
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
