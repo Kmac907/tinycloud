@@ -56,6 +56,7 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"storage":   h.cfg.AdvertiseHost + ":" + h.cfg.Blob,
 			"keyVault":  h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault,
 			"appConfig": h.cfg.AdvertiseHost + ":" + h.cfg.AppConfig,
+			"cosmos":    h.cfg.AdvertiseHost + ":" + h.cfg.Cosmos,
 		},
 		"services": map[string]string{
 			"blob":       h.cfg.BlobURL(),
@@ -64,6 +65,7 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"keyVault":   h.cfg.KeyVaultURL(),
 			"serviceBus": h.cfg.ServiceBusURL(),
 			"appConfig":  h.cfg.AppConfigURL(),
+			"cosmos":     h.cfg.CosmosURL(),
 		},
 	})
 }

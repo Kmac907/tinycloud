@@ -18,6 +18,6 @@ COPY --from=build /out/tinycloudd /usr/local/bin/tinycloudd
 
 ENV TINYCLOUD_DATA_ROOT=/var/lib/tinycloud
 
-EXPOSE 4566 4567 4577 4578 4579 4580 4581 4582
+EXPOSE 4566 4567 4577 4578 4579 4580 4581 4582 4583
 
 CMD ["tinycloudd"]

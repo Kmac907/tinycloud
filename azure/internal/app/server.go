@@ -14,6 +14,7 @@ import (
 	"tinycloud/internal/identity"
 	"tinycloud/internal/metadata"
 	"tinycloud/internal/providers/appconfig"
+	"tinycloud/internal/providers/cosmos"
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
 	"tinycloud/internal/providers/servicebus"
@@ -119,6 +120,14 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	cosmosMux := http.NewServeMux()
+	cosmos.NewHandler(s.store, s.cfg).Register(cosmosMux)
+	cosmosServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.Cosmos,
+		Handler:           chain(cosmosMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	s.logger.Info("tinycloud server starting", map[string]any{
 		"addr":           s.cfg.ManagementAddr(),
 		"blobAddr":       s.cfg.ListenHost + ":" + s.cfg.Blob,
@@ -127,10 +136,11 @@ func (s *Server) Run(ctx context.Context) error {
 		"serviceBusAddr": s.cfg.ListenHost + ":" + s.cfg.ServiceBus,
 		"keyVaultAddr":   s.cfg.ListenHost + ":" + s.cfg.KeyVault,
 		"appConfigAddr":  s.cfg.ListenHost + ":" + s.cfg.AppConfig,
+		"cosmosAddr":     s.cfg.ListenHost + ":" + s.cfg.Cosmos,
 		"dataRoot":       s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 7)
+	errCh := make(chan error, 8)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -152,6 +162,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		errCh <- appConfigServer.ListenAndServe()
 	}()
+	go func() {
+		errCh <- cosmosServer.ListenAndServe()
+	}()
 
 	select {
 	case <-ctx.Done():
@@ -162,6 +175,9 @@ func (s *Server) Run(ctx context.Context) error {
 			return err
 		}
 		if err := appConfigServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if err := cosmosServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		if err := queueServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -182,6 +198,7 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = appConfigServer.Shutdown(shutdownCtx)
+		_ = cosmosServer.Shutdown(shutdownCtx)
 		_ = queueServer.Shutdown(shutdownCtx)
 		_ = tableServer.Shutdown(shutdownCtx)
 		_ = serviceBusServer.Shutdown(shutdownCtx)

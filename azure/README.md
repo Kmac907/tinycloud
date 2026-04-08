@@ -7,18 +7,18 @@
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Single Container" /></a>
-  <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Storage%20%2B%20Secrets%20%2B%20Messaging-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM Storage Secrets and Messaging" /></a>
+  <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Storage%20%2B%20Data%20%2B%20Secrets%20%2B%20Messaging-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM Storage Data Secrets and Messaging" /></a>
   <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
 </p>
 
-<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, secrets, and messaging workflows.</sub></p>
+<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, secrets, and messaging workflows.</sub></p>
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
 - metadata, OAuth, and minimal IMDS-style managed identity endpoints
-- real Blob, Queue Storage, Table Storage, Key Vault secrets, and Service Bus behavior on dedicated service ports
+- real Blob, Queue Storage, Table Storage, Cosmos DB, App Configuration, Key Vault secrets, and Service Bus behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
 TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `12` implemented
+- `13` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -39,7 +39,7 @@ Current status across the listed emulator areas:
 | ARM resource groups | Implemented | CRUD with Azure-style shapes and async headers |
 | ARM storage accounts | Implemented | CRUD with Blob endpoint advertisement |
 | ARM Key Vault resources | Implemented | CRUD for `Microsoft.KeyVault/vaults` |
-| ARM deployments | Partial | Deployment records and async failure/status are implemented; template execution is not |
+| ARM deployments | Partial | Deployment records and async status are implemented; a narrow static template subset works for storage accounts and Key Vault vaults |
 | Blob data-plane | Implemented | Containers, upload/download/list/delete, `HEAD`, compatibility headers |
 | Managed identity and token endpoints | Implemented | Minimal IMDS-style behavior and signed local JWTs |
 | Admin/runtime endpoints | Implemented | Health, metrics, reset, snapshot, seed |
@@ -47,6 +47,7 @@ Current status across the listed emulator areas:
 | Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
+| Cosmos DB | Implemented | Account, database, container, and document CRUD on the dedicated Cosmos listener |
 | App Configuration | Implemented | Config store and key-value CRUD on the dedicated App Configuration listener |
 
 ### What Is Actually Emulated Today
@@ -76,6 +77,11 @@ Current status across the listed emulator areas:
 - Table Storage on its own port:
   - create/list/delete tables
   - upsert/get/list/delete entities
+- Cosmos DB on its own port:
+  - create/list accounts
+  - create/list databases
+  - create/list containers
+  - create/get/list/delete documents
 - Key Vault on its own port:
   - set/get/list/delete secrets
 - Service Bus on its own port:
@@ -107,6 +113,7 @@ All service listeners except the advertised HTTPS management port are active tod
 | `4580` | Active | Key Vault secrets data-plane |
 | `4581` | Active | Service Bus data-plane |
 | `4582` | Active | App Configuration data-plane |
+| `4583` | Active | Cosmos DB data-plane |
 
 ## How To Interact With The Emulated Azure Environment
 
@@ -249,7 +256,21 @@ Invoke-RestMethod -Method Put "http://127.0.0.1:4582/stores/tiny-settings/kv/Fea
 Invoke-RestMethod "http://127.0.0.1:4582/stores/tiny-settings/kv/FeatureX:Enabled?label=prod"
 ```
 
-### 8. Metadata And Identity
+### 8. Cosmos DB Data-Plane
+
+Cosmos DB runs on `http://127.0.0.1:4583`.
+
+Create an account, database, container, and document:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts/local-cosmos/dbs" -Body '{"id":"appdb"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts/local-cosmos/dbs/appdb/colls" -Body '{"id":"customers","partitionKeyPath":"/tenantId"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts/local-cosmos/dbs/appdb/colls/customers/docs" -Body '{"id":"cust-001","partitionKey":"tenant-a","tenantId":"tenant-a","name":"Tiny Cloud"}' -ContentType "application/json"
+Invoke-RestMethod "http://127.0.0.1:4583/accounts/local-cosmos/dbs/appdb/colls/customers/docs/cust-001"
+```
+
+### 9. Metadata And Identity
 
 Inspect local environment metadata:
 
@@ -265,7 +286,7 @@ Invoke-RestMethod `
   "http://127.0.0.1:4566/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
 ```
 
-### 9. Admin Runtime Endpoints
+### 10. Admin Runtime Endpoints
 
 These are TinyCloud-specific runtime controls, not Azure service APIs.
 
@@ -392,6 +413,7 @@ The example material in this repo is under `examples/terraform/resource-group`, 
 | `TINYCLOUD_KEYVAULT_PORT` | `4580` | Key Vault listener |
 | `TINYCLOUD_SERVICEBUS_PORT` | `4581` | Service Bus listener |
 | `TINYCLOUD_APPCONFIG_PORT` | `4582` | App Configuration listener |
+| `TINYCLOUD_COSMOS_PORT` | `4583` | Cosmos DB listener |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |
@@ -425,6 +447,7 @@ Invoke-RestMethod http://127.0.0.1:4566/subscriptions?api-version=2024-01-01
 Invoke-WebRequest -Method Put "http://127.0.0.1:4577/devstoreaccount1/docs?restype=container"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
+Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
 ```
 
 ### Docker
@@ -439,6 +462,7 @@ docker run --rm `
   -p 4580:4580 `
   -p 4581:4581 `
   -p 4582:4582 `
+  -p 4583:4583 `
   -v "${PWD}\data:/var/lib/tinycloud" `
   tinycloud-azure
 ```
@@ -463,7 +487,7 @@ This is the practical comparison for current use, not a marketing claim. The poi
 
 ## Current Limitations
 
-- No deployment template execution; deployments are tracked honestly as unsupported
+- Deployment template execution is intentionally narrow; only a small static subset is implemented today
 - No management TLS listener yet, even though an HTTPS URL can be advertised
 - Not a full Azure CLI or full SDK parity environment
 

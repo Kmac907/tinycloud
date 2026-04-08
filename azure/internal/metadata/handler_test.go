@@ -59,6 +59,9 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	if body.Services["appConfig"] != cfg.AppConfigURL() {
 		t.Fatalf("services.appConfig = %q, want %q", body.Services["appConfig"], cfg.AppConfigURL())
 	}
+	if body.Services["cosmos"] != cfg.CosmosURL() {
+		t.Fatalf("services.cosmos = %q, want %q", body.Services["cosmos"], cfg.CosmosURL())
+	}
 	if body.Authentication["activeDirectoryResourceId"] != cfg.TokenAudience {
 		t.Fatalf("authentication.activeDirectoryResourceId = %q, want %q", body.Authentication["activeDirectoryResourceId"], cfg.TokenAudience)
 	}
@@ -67,6 +70,9 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 	if body.Suffixes["appConfig"] != cfg.AdvertiseHost+":"+cfg.AppConfig {
 		t.Fatalf("suffixes.appConfig = %q, want %q", body.Suffixes["appConfig"], cfg.AdvertiseHost+":"+cfg.AppConfig)
+	}
+	if body.Suffixes["cosmos"] != cfg.AdvertiseHost+":"+cfg.Cosmos {
+		t.Fatalf("suffixes.cosmos = %q, want %q", body.Suffixes["cosmos"], cfg.AdvertiseHost+":"+cfg.Cosmos)
 	}
 	providers, _ := body.ResourceMgr["providers"].([]any)
 	if len(providers) != 3 {
