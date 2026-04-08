@@ -28,6 +28,7 @@ type Document struct {
 	Blobs           []BlobObject             `json:"blobs,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
 	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
+	KeyVaultSecrets []KeyVaultSecret         `json:"keyVaultSecrets,omitempty"`
 	Deployments     []Deployment             `json:"deployments,omitempty"`
 }
 
@@ -114,6 +115,15 @@ type KeyVault struct {
 	ProvisioningState string            `json:"provisioningState"`
 	CreatedAt         string            `json:"createdAt"`
 	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type KeyVaultSecret struct {
+	VaultName   string `json:"vaultName"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	ContentType string `json:"contentType,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type Deployment struct {
@@ -279,6 +289,9 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.KeyVaults == nil {
 		doc.KeyVaults = []KeyVault{}
+	}
+	if doc.KeyVaultSecrets == nil {
+		doc.KeyVaultSecrets = []KeyVaultSecret{}
 	}
 	if doc.Deployments == nil {
 		doc.Deployments = []Deployment{}
@@ -1191,6 +1204,29 @@ ORDER BY name`, subscriptionID, resourceGroupName)
 	return vaults, nil
 }
 
+func (s *Store) GetKeyVaultByName(name string) (KeyVault, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return KeyVault{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return KeyVault{}, err
+	}
+
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM key_vaults
+WHERE name = ?
+ORDER BY created_at
+LIMIT 1`, name)
+	return scanKeyVault(row)
+}
+
 func (s *Store) DeleteKeyVault(subscriptionID, resourceGroupName, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1214,6 +1250,175 @@ WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptio
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("delete key vault rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := db.Exec(`DELETE FROM key_vault_secrets WHERE vault_name = ?`, name); err != nil {
+		return fmt.Errorf("delete key vault secrets: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PutKeyVaultSecret(vaultName, name, value, contentType string) (KeyVaultSecret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return KeyVaultSecret{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return KeyVaultSecret{}, err
+	}
+
+	var vaultExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM key_vaults WHERE name = ?
+)`, vaultName).Scan(&vaultExists); err != nil {
+		return KeyVaultSecret{}, fmt.Errorf("query key vault: %w", err)
+	}
+	if !vaultExists {
+		return KeyVaultSecret{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	var createdAt string
+	err = db.QueryRow(`
+SELECT created_at
+FROM key_vault_secrets
+WHERE vault_name = ? AND name = ?`, vaultName, name).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return KeyVaultSecret{}, fmt.Errorf("read key vault secret timestamps: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO key_vault_secrets (
+    vault_name, name, value, content_type, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(vault_name, name) DO UPDATE SET
+    value = excluded.value,
+    content_type = excluded.content_type,
+    updated_at = excluded.updated_at
+`, vaultName, name, value, contentType, createdAt, nowValue); err != nil {
+		return KeyVaultSecret{}, fmt.Errorf("put key vault secret: %w", err)
+	}
+
+	return KeyVaultSecret{
+		VaultName:   vaultName,
+		Name:        name,
+		Value:       value,
+		ContentType: contentType,
+		CreatedAt:   createdAt,
+		UpdatedAt:   nowValue,
+	}, nil
+}
+
+func (s *Store) GetKeyVaultSecret(vaultName, name string) (KeyVaultSecret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return KeyVaultSecret{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return KeyVaultSecret{}, err
+	}
+
+	var secret KeyVaultSecret
+	err = db.QueryRow(`
+SELECT vault_name, name, value, content_type, created_at, updated_at
+FROM key_vault_secrets
+WHERE vault_name = ? AND name = ?`, vaultName, name).Scan(
+		&secret.VaultName,
+		&secret.Name,
+		&secret.Value,
+		&secret.ContentType,
+		&secret.CreatedAt,
+		&secret.UpdatedAt,
+	)
+	if err != nil {
+		return KeyVaultSecret{}, err
+	}
+	return secret, nil
+}
+
+func (s *Store) ListKeyVaultSecrets(vaultName string) ([]KeyVaultSecret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT vault_name, name, value, content_type, created_at, updated_at
+FROM key_vault_secrets
+WHERE vault_name = ?
+ORDER BY name`, vaultName)
+	if err != nil {
+		return nil, fmt.Errorf("list key vault secrets: %w", err)
+	}
+	defer rows.Close()
+
+	var secrets []KeyVaultSecret
+	for rows.Next() {
+		var secret KeyVaultSecret
+		if err := rows.Scan(
+			&secret.VaultName,
+			&secret.Name,
+			&secret.Value,
+			&secret.ContentType,
+			&secret.CreatedAt,
+			&secret.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan key vault secret: %w", err)
+		}
+		secrets = append(secrets, secret)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate key vault secrets: %w", err)
+	}
+	return secrets, nil
+}
+
+func (s *Store) DeleteKeyVaultSecret(vaultName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM key_vault_secrets
+WHERE vault_name = ? AND name = ?`, vaultName, name)
+	if err != nil {
+		return fmt.Errorf("delete key vault secret: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete key vault secret rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
@@ -1409,6 +1614,15 @@ CREATE TABLE IF NOT EXISTS key_vaults (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS key_vault_secrets (
+    vault_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    value TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (vault_name, name)
+);
 CREATE TABLE IF NOT EXISTS deployments (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -1600,6 +1814,33 @@ ORDER BY subscription_id, resource_group_name, name`)
 		return Document{}, fmt.Errorf("iterate key vaults: %w", err)
 	}
 
+	keyVaultSecretRows, err := db.Query(`
+SELECT vault_name, name, value, content_type, created_at, updated_at
+FROM key_vault_secrets
+ORDER BY vault_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read key vault secrets: %w", err)
+	}
+	defer keyVaultSecretRows.Close()
+
+	for keyVaultSecretRows.Next() {
+		var secret KeyVaultSecret
+		if err := keyVaultSecretRows.Scan(
+			&secret.VaultName,
+			&secret.Name,
+			&secret.Value,
+			&secret.ContentType,
+			&secret.CreatedAt,
+			&secret.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan key vault secret: %w", err)
+		}
+		doc.KeyVaultSecrets = append(doc.KeyVaultSecrets, secret)
+	}
+	if err := keyVaultSecretRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate key vault secrets: %w", err)
+	}
+
 	deploymentRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
 FROM deployments
@@ -1671,6 +1912,9 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.KeyVaults == nil {
 		doc.KeyVaults = []KeyVault{}
 	}
+	if doc.KeyVaultSecrets == nil {
+		doc.KeyVaultSecrets = []KeyVaultSecret{}
+	}
 	if doc.Deployments == nil {
 		doc.Deployments = []Deployment{}
 	}
@@ -1703,6 +1947,10 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM key_vaults`); err != nil {
 		err = fmt.Errorf("clear key vaults: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM key_vault_secrets`); err != nil {
+		err = fmt.Errorf("clear key vault secrets: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM deployments`); err != nil {
@@ -1888,6 +2136,26 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, secret := range doc.KeyVaultSecrets {
+		if secret.CreatedAt == "" {
+			secret.CreatedAt = doc.UpdatedAt
+		}
+		if secret.UpdatedAt == "" {
+			secret.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO key_vault_secrets (vault_name, name, value, content_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			secret.VaultName,
+			secret.Name,
+			secret.Value,
+			secret.ContentType,
+			secret.CreatedAt,
+			secret.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert key vault secret: %w", err)
+			return err
+		}
+	}
 	for _, deployment := range doc.Deployments {
 		if deployment.Mode == "" {
 			deployment.Mode = "Incremental"
@@ -1961,6 +2229,7 @@ func newDocument() Document {
 		Blobs:           []BlobObject{},
 		StorageAccounts: []StorageAccount{},
 		KeyVaults:       []KeyVault{},
+		KeyVaultSecrets: []KeyVaultSecret{},
 		Deployments:     []Deployment{},
 	}
 }

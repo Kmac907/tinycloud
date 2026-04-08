@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -475,6 +476,14 @@ func TestKeyVaultCRUD(t *testing.T) {
 		t.Fatalf("TenantID = %q, want %q", got.TenantID, "tenant-123")
 	}
 
+	gotByName, err := store.GetKeyVaultByName("vaulttest")
+	if err != nil {
+		t.Fatalf("GetKeyVaultByName() error = %v", err)
+	}
+	if gotByName.ResourceGroupName != "rg-test" {
+		t.Fatalf("ResourceGroupName = %q, want %q", gotByName.ResourceGroupName, "rg-test")
+	}
+
 	vaults, err := store.ListKeyVaults("sub-123", "rg-test")
 	if err != nil {
 		t.Fatalf("ListKeyVaults() error = %v", err)
@@ -530,6 +539,96 @@ func TestSnapshotAndRestorePreserveKeyVaultState(t *testing.T) {
 	}
 	if vault.TenantID != "tenant-123" {
 		t.Fatalf("TenantID = %q, want %q", vault.TenantID, "tenant-123")
+	}
+}
+
+func TestKeyVaultSecretCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertKeyVault("sub-123", "rg-test", "vaulttest", "westus2", "tenant-123", "standard", nil); err != nil {
+		t.Fatalf("UpsertKeyVault() error = %v", err)
+	}
+
+	secret, err := store.PutKeyVaultSecret("vaulttest", "app-secret", "super-secret-value", "text/plain")
+	if err != nil {
+		t.Fatalf("PutKeyVaultSecret() error = %v", err)
+	}
+	if secret.Name != "app-secret" {
+		t.Fatalf("Name = %q, want %q", secret.Name, "app-secret")
+	}
+
+	got, err := store.GetKeyVaultSecret("vaulttest", "app-secret")
+	if err != nil {
+		t.Fatalf("GetKeyVaultSecret() error = %v", err)
+	}
+	if got.Value != "super-secret-value" {
+		t.Fatalf("Value = %q, want %q", got.Value, "super-secret-value")
+	}
+
+	secrets, err := store.ListKeyVaultSecrets("vaulttest")
+	if err != nil {
+		t.Fatalf("ListKeyVaultSecrets() error = %v", err)
+	}
+	if len(secrets) != 1 {
+		t.Fatalf("len(secrets) = %d, want %d", len(secrets), 1)
+	}
+
+	if err := store.DeleteKeyVaultSecret("vaulttest", "app-secret"); err != nil {
+		t.Fatalf("DeleteKeyVaultSecret() error = %v", err)
+	}
+	if _, err := store.GetKeyVaultSecret("vaulttest", "app-secret"); err == nil {
+		t.Fatal("GetKeyVaultSecret() after delete error = nil, want error")
+	} else if err != sql.ErrNoRows {
+		t.Fatalf("GetKeyVaultSecret() after delete error = %v, want %v", err, sql.ErrNoRows)
+	}
+}
+
+func TestSnapshotAndRestorePreserveKeyVaultSecrets(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertKeyVault("sub-123", "rg-test", "vaulttest", "westus2", "tenant-123", "standard", nil); err != nil {
+		t.Fatalf("UpsertKeyVault() error = %v", err)
+	}
+	if _, err := store.PutKeyVaultSecret("vaulttest", "app-secret", "super-secret-value", "text/plain"); err != nil {
+		t.Fatalf("PutKeyVaultSecret() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "keyvault-secrets.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	secret, err := restoreStore.GetKeyVaultSecret("vaulttest", "app-secret")
+	if err != nil {
+		t.Fatalf("GetKeyVaultSecret() error = %v", err)
+	}
+	if secret.Value != "super-secret-value" {
+		t.Fatalf("Value = %q, want %q", secret.Value, "super-secret-value")
 	}
 }
 
