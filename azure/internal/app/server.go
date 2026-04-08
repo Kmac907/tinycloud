@@ -13,6 +13,7 @@ import (
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/identity"
 	"tinycloud/internal/metadata"
+	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/storage"
 	"tinycloud/internal/state"
 	"tinycloud/internal/telemetry"
@@ -74,18 +75,30 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	keyVaultMux := http.NewServeMux()
+	keyvault.NewHandler(s.store, s.cfg).Register(keyVaultMux)
+	keyVaultServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.KeyVault,
+		Handler:           chain(keyVaultMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	s.logger.Info("tinycloud server starting", map[string]any{
-		"addr":     s.cfg.ManagementAddr(),
-		"blobAddr": s.cfg.ListenHost + ":" + s.cfg.Blob,
-		"dataRoot": s.cfg.DataRoot,
+		"addr":         s.cfg.ManagementAddr(),
+		"blobAddr":     s.cfg.ListenHost + ":" + s.cfg.Blob,
+		"keyVaultAddr": s.cfg.ListenHost + ":" + s.cfg.KeyVault,
+		"dataRoot":     s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
 	go func() {
 		errCh <- blobServer.ListenAndServe()
+	}()
+	go func() {
+		errCh <- keyVaultServer.ListenAndServe()
 	}()
 
 	select {
@@ -93,6 +106,9 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		s.logger.Info("tinycloud server stopping", nil)
+		if err := keyVaultServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 		if err := blobServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -100,6 +116,7 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-errCh:
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = blobServer.Shutdown(shutdownCtx)
 		_ = server.Shutdown(shutdownCtx)
 		if errors.Is(err, http.ErrServerClosed) {
