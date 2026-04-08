@@ -1,3 +1,5 @@
+![TinyCloud Logo](assets/logo.png)
+
 # TinyCloud Azure Emulator
 
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](#)
