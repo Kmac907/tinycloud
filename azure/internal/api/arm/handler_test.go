@@ -412,6 +412,107 @@ func TestPutKeyVaultRequiresExistingResourceGroup(t *testing.T) {
 	}
 }
 
+func TestVirtualNetworkAndSubnetCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	createVNetReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one?api-version=2024-01-01", strings.NewReader(`{"location":"westus2","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}`))
+	createVNetRec := httptest.NewRecorder()
+	mux.ServeHTTP(createVNetRec, createVNetReq)
+	if createVNetRec.Code != http.StatusAccepted {
+		t.Fatalf("create vnet status = %d, want %d", createVNetRec.Code, http.StatusAccepted)
+	}
+
+	listVNetReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks?api-version=2024-01-01", nil)
+	listVNetRec := httptest.NewRecorder()
+	mux.ServeHTTP(listVNetRec, listVNetReq)
+	if listVNetRec.Code != http.StatusOK {
+		t.Fatalf("list vnet status = %d, want %d", listVNetRec.Code, http.StatusOK)
+	}
+	if !strings.Contains(listVNetRec.Body.String(), `"name":"vnet-one"`) {
+		t.Fatalf("list vnet body = %q, want vnet name", listVNetRec.Body.String())
+	}
+
+	createSubnetReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one/subnets/frontend?api-version=2024-01-01", strings.NewReader(`{"properties":{"addressPrefix":"10.0.1.0/24"}}`))
+	createSubnetRec := httptest.NewRecorder()
+	mux.ServeHTTP(createSubnetRec, createSubnetReq)
+	if createSubnetRec.Code != http.StatusAccepted {
+		t.Fatalf("create subnet status = %d, want %d", createSubnetRec.Code, http.StatusAccepted)
+	}
+
+	getVNetReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one?api-version=2024-01-01", nil)
+	getVNetRec := httptest.NewRecorder()
+	mux.ServeHTTP(getVNetRec, getVNetReq)
+	if getVNetRec.Code != http.StatusOK {
+		t.Fatalf("get vnet status = %d, want %d", getVNetRec.Code, http.StatusOK)
+	}
+	if !strings.Contains(getVNetRec.Body.String(), `"subnets":[`) {
+		t.Fatalf("get vnet body = %q, want subnets", getVNetRec.Body.String())
+	}
+
+	getSubnetReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one/subnets/frontend?api-version=2024-01-01", nil)
+	getSubnetRec := httptest.NewRecorder()
+	mux.ServeHTTP(getSubnetRec, getSubnetReq)
+	if getSubnetRec.Code != http.StatusOK {
+		t.Fatalf("get subnet status = %d, want %d", getSubnetRec.Code, http.StatusOK)
+	}
+
+	deleteSubnetReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one/subnets/frontend?api-version=2024-01-01", nil)
+	deleteSubnetRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteSubnetRec, deleteSubnetReq)
+	if deleteSubnetRec.Code != http.StatusAccepted {
+		t.Fatalf("delete subnet status = %d, want %d", deleteSubnetRec.Code, http.StatusAccepted)
+	}
+
+	deleteVNetReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one?api-version=2024-01-01", nil)
+	deleteVNetRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteVNetRec, deleteVNetReq)
+	if deleteVNetRec.Code != http.StatusAccepted {
+		t.Fatalf("delete vnet status = %d, want %d", deleteVNetRec.Code, http.StatusAccepted)
+	}
+}
+
+func TestPutSubnetRequiresExistingVirtualNetwork(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/virtualNetworks/vnet-one/subnets/frontend?api-version=2024-01-01", strings.NewReader(`{"properties":{"addressPrefix":"10.0.1.0/24"}}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestPrivateDNSZoneAndRecordSetCRUD(t *testing.T) {
 	t.Parallel()
 

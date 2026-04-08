@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `15` implemented
+- `16` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -46,6 +46,7 @@ Current status across the listed emulator areas:
 | Key Vault secrets data-plane | Implemented | Secret set/get/list/delete on the dedicated Key Vault listener |
 | Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
 | Event Hubs | Implemented | Namespaces, hubs, publish, and ordered event reads |
+| Virtual Networks | Implemented | ARM CRUD for virtual networks and subnets |
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
 | Cosmos DB | Implemented | Account, database, container, and document CRUD on the dedicated Cosmos listener |
@@ -62,6 +63,8 @@ Current status across the listed emulator areas:
   - resource group CRUD
   - storage account CRUD
   - Key Vault resource CRUD
+  - virtual network CRUD
+  - subnet CRUD
   - private DNS zone CRUD
   - private DNS A-record CRUD
   - deployment record/status routes
@@ -164,6 +167,20 @@ Invoke-RestMethod -Method Put `
 ```
 
 Resource-group, storage-account, and Key Vault writes return `202 Accepted` plus `Azure-AsyncOperation`, `Location`, and `Retry-After`.
+
+Create a virtual network and subnet:
+
+```powershell
+Invoke-RestMethod -Method Put `
+  "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/virtualNetworks/vnet-local?api-version=2024-01-01" `
+  -Body '{"location":"westus2","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}' `
+  -ContentType "application/json"
+
+Invoke-RestMethod -Method Put `
+  "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/virtualNetworks/vnet-local/subnets/frontend?api-version=2024-01-01" `
+  -Body '{"properties":{"addressPrefix":"10.0.1.0/24"}}' `
+  -ContentType "application/json"
+```
 
 ### 2. Blob Storage Data-Plane
 
@@ -497,6 +514,7 @@ Invoke-WebRequest -Method Put "http://127.0.0.1:4577/devstoreaccount1/docs?resty
 Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name":"local-messaging"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/virtualNetworks/vnet-local?api-version=2024-01-01" -Body '{"location":"westus2","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}' -ContentType "application/json"
 Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01" -Body '{}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces" -Body '{"name":"local-streaming"}' -ContentType "application/json"
 ```

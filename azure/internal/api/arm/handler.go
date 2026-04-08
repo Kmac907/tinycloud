@@ -43,6 +43,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.putKeyVault)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.getKeyVault)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/vaults/{vaultName}", h.deleteKeyVault)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks", h.listVirtualNetworks)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}", h.putVirtualNetwork)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}", h.getVirtualNetwork)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}", h.deleteVirtualNetwork)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets", h.listSubnets)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.putSubnet)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.getSubnet)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.deleteSubnet)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones", h.listPrivateDNSZones)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.putPrivateDNSZone)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.getPrivateDNSZone)
@@ -518,6 +526,267 @@ func (h *Handler) deleteKeyVault(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+func (h *Handler) listVirtualNetworks(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	networks, err := h.store.ListVirtualNetworks(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(networks))
+	for _, network := range networks {
+		body, err := h.virtualNetworkResponse(network)
+		if err != nil {
+			httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+			return
+		}
+		value = append(value, body)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putVirtualNetwork(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Location   string            `json:"location"`
+		Tags       map[string]string `json:"tags"`
+		Properties struct {
+			AddressSpace struct {
+				AddressPrefixes []string `json:"addressPrefixes"`
+			} `json:"addressSpace"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Location == "" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingLocation", "virtual network location is required")
+		return
+	}
+	if len(body.Properties.AddressSpace.AddressPrefixes) == 0 {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "virtual network requires at least one address prefix")
+		return
+	}
+
+	network, err := h.store.UpsertVirtualNetwork(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("virtualNetworkName"),
+		body.Location,
+		body.Properties.AddressSpace.AddressPrefixes,
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		network.ID,
+		"Microsoft.Network/virtualNetworks/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	response, err := h.virtualNetworkResponse(network)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, response)
+}
+
+func (h *Handler) getVirtualNetwork(w http.ResponseWriter, r *http.Request) {
+	network, err := h.store.GetVirtualNetwork(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the virtual network was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	response, err := h.virtualNetworkResponse(network)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) deleteVirtualNetwork(w http.ResponseWriter, r *http.Request) {
+	network, err := h.store.GetVirtualNetwork(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the virtual network was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteVirtualNetwork(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the virtual network was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		network.ID,
+		"Microsoft.Network/virtualNetworks/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) listSubnets(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetVirtualNetwork(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the virtual network was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	subnets, err := h.store.ListSubnets(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(subnets))
+	for _, subnet := range subnets {
+		value = append(value, subnetResponse(subnet))
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putSubnet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Properties struct {
+			AddressPrefix string `json:"addressPrefix"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Properties.AddressPrefix == "" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "subnet requires an addressPrefix")
+		return
+	}
+
+	subnet, err := h.store.UpsertSubnet(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("virtualNetworkName"),
+		r.PathValue("subnetName"),
+		body.Properties.AddressPrefix,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the virtual network was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		subnet.ID,
+		"Microsoft.Network/virtualNetworks/subnets/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, subnetResponse(subnet))
+}
+
+func (h *Handler) getSubnet(w http.ResponseWriter, r *http.Request) {
+	subnet, err := h.store.GetSubnet(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"), r.PathValue("subnetName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the subnet was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, subnetResponse(subnet))
+}
+
+func (h *Handler) deleteSubnet(w http.ResponseWriter, r *http.Request) {
+	subnet, err := h.store.GetSubnet(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"), r.PathValue("subnetName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the subnet was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteSubnet(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("virtualNetworkName"), r.PathValue("subnetName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the subnet was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		subnet.ID,
+		"Microsoft.Network/virtualNetworks/subnets/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (h *Handler) listPrivateDNSZones(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
 		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
@@ -957,6 +1226,43 @@ func (h *Handler) keyVaultResponse(vault state.KeyVault) map[string]any {
 		},
 		"sku": map[string]string{
 			"name": vault.SKUName,
+		},
+	}
+}
+
+func (h *Handler) virtualNetworkResponse(network state.VirtualNetwork) (map[string]any, error) {
+	subnets, err := h.store.ListSubnets(network.SubscriptionID, network.ResourceGroupName, network.Name)
+	if err != nil {
+		return nil, err
+	}
+	subnetBodies := make([]map[string]any, 0, len(subnets))
+	for _, subnet := range subnets {
+		subnetBodies = append(subnetBodies, subnetResponse(subnet))
+	}
+	return map[string]any{
+		"id":       network.ID,
+		"name":     network.Name,
+		"type":     "Microsoft.Network/virtualNetworks",
+		"location": network.Location,
+		"tags":     network.Tags,
+		"properties": map[string]any{
+			"addressSpace": map[string]any{
+				"addressPrefixes": network.AddressPrefixes,
+			},
+			"subnets":           subnetBodies,
+			"provisioningState": network.ProvisioningState,
+		},
+	}, nil
+}
+
+func subnetResponse(subnet state.Subnet) map[string]any {
+	return map[string]any{
+		"id":   subnet.ID,
+		"name": subnet.Name,
+		"type": "Microsoft.Network/virtualNetworks/subnets",
+		"properties": map[string]any{
+			"addressPrefix":     subnet.AddressPrefix,
+			"provisioningState": subnet.ProvisioningState,
 		},
 	}
 }
