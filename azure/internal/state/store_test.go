@@ -983,6 +983,121 @@ func TestSnapshotAndRestorePreserveServiceBusTopicState(t *testing.T) {
 	}
 }
 
+func TestEventHubCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	namespace, created, err := store.CreateEventHubNamespace("local-streaming")
+	if err != nil {
+		t.Fatalf("CreateEventHubNamespace() error = %v", err)
+	}
+	if !created || namespace.Name != "local-streaming" {
+		t.Fatalf("CreateEventHubNamespace() = %#v, %t", namespace, created)
+	}
+
+	namespaces, err := store.ListEventHubNamespaces()
+	if err != nil {
+		t.Fatalf("ListEventHubNamespaces() error = %v", err)
+	}
+	if len(namespaces) != 1 {
+		t.Fatalf("len(namespaces) = %d, want %d", len(namespaces), 1)
+	}
+
+	hub, created, err := store.CreateEventHub("local-streaming", "orders")
+	if err != nil {
+		t.Fatalf("CreateEventHub() error = %v", err)
+	}
+	if !created || hub.Name != "orders" {
+		t.Fatalf("CreateEventHub() = %#v, %t", hub, created)
+	}
+
+	hubs, err := store.ListEventHubs("local-streaming")
+	if err != nil {
+		t.Fatalf("ListEventHubs() error = %v", err)
+	}
+	if len(hubs) != 1 {
+		t.Fatalf("len(hubs) = %d, want %d", len(hubs), 1)
+	}
+
+	first, err := store.PublishEventHubEvent("local-streaming", "orders", `{"event":"created"}`, "tenant-a")
+	if err != nil {
+		t.Fatalf("PublishEventHubEvent() first error = %v", err)
+	}
+	second, err := store.PublishEventHubEvent("local-streaming", "orders", `{"event":"updated"}`, "tenant-a")
+	if err != nil {
+		t.Fatalf("PublishEventHubEvent() second error = %v", err)
+	}
+	if first.SequenceNumber != 1 || second.SequenceNumber != 2 {
+		t.Fatalf("sequence numbers = (%d, %d), want (1, 2)", first.SequenceNumber, second.SequenceNumber)
+	}
+
+	events, err := store.ListEventHubEvents("local-streaming", "orders", 2, 10)
+	if err != nil {
+		t.Fatalf("ListEventHubEvents() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want %d", len(events), 1)
+	}
+	if events[0].Body != `{"event":"updated"}` {
+		t.Fatalf("Body = %q, want %q", events[0].Body, `{"event":"updated"}`)
+	}
+}
+
+func TestSnapshotAndRestorePreserveEventHubState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateEventHubNamespace("local-streaming"); err != nil {
+		t.Fatalf("CreateEventHubNamespace() error = %v", err)
+	}
+	if _, _, err := store.CreateEventHub("local-streaming", "orders"); err != nil {
+		t.Fatalf("CreateEventHub() error = %v", err)
+	}
+	if _, err := store.PublishEventHubEvent("local-streaming", "orders", `{"event":"created"}`, "tenant-a"); err != nil {
+		t.Fatalf("PublishEventHubEvent() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "eventhubs.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	events, err := restoreStore.ListEventHubEvents("local-streaming", "orders", 1, 10)
+	if err != nil {
+		t.Fatalf("ListEventHubEvents() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want %d", len(events), 1)
+	}
+	if events[0].PartitionKey != "tenant-a" {
+		t.Fatalf("PartitionKey = %q, want %q", events[0].PartitionKey, "tenant-a")
+	}
+}
+
 func TestAppConfigCRUD(t *testing.T) {
 	t.Parallel()
 

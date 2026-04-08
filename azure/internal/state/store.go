@@ -37,6 +37,9 @@ type Document struct {
 	ServiceBusTopics               []ServiceBusTopic               `json:"serviceBusTopics,omitempty"`
 	ServiceBusSubscriptions        []ServiceBusSubscription        `json:"serviceBusSubscriptions,omitempty"`
 	ServiceBusSubscriptionMessages []ServiceBusSubscriptionMessage `json:"serviceBusSubscriptionMessages,omitempty"`
+	EventHubNamespaces             []EventHubNamespace             `json:"eventHubNamespaces,omitempty"`
+	EventHubs                      []EventHub                      `json:"eventHubs,omitempty"`
+	EventHubEvents                 []EventHubEvent                 `json:"eventHubEvents,omitempty"`
 	AppConfigStores                []AppConfigStore                `json:"appConfigStores,omitempty"`
 	AppConfigValues                []AppConfigValue                `json:"appConfigValues,omitempty"`
 	CosmosAccounts                 []CosmosAccount                 `json:"cosmosAccounts,omitempty"`
@@ -195,6 +198,32 @@ type ServiceBusSubscriptionMessage struct {
 	VisibleAt        string `json:"visibleAt"`
 	CreatedAt        string `json:"createdAt"`
 	UpdatedAt        string `json:"updatedAt"`
+}
+
+type EventHubNamespace struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type EventHub struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type EventHubEvent struct {
+	Namespace      string `json:"namespace"`
+	HubName        string `json:"hubName"`
+	ID             string `json:"id"`
+	Body           string `json:"body"`
+	PartitionKey   string `json:"partitionKey,omitempty"`
+	SequenceNumber int64  `json:"sequenceNumber"`
+	Offset         string `json:"offset"`
+	EnqueuedAt     string `json:"enqueuedAt"`
+	CreatedAt      string `json:"createdAt"`
+	UpdatedAt      string `json:"updatedAt"`
 }
 
 type AppConfigStore struct {
@@ -495,6 +524,15 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.ServiceBusSubscriptionMessages == nil {
 		doc.ServiceBusSubscriptionMessages = []ServiceBusSubscriptionMessage{}
+	}
+	if doc.EventHubNamespaces == nil {
+		doc.EventHubNamespaces = []EventHubNamespace{}
+	}
+	if doc.EventHubs == nil {
+		doc.EventHubs = []EventHub{}
+	}
+	if doc.EventHubEvents == nil {
+		doc.EventHubEvents = []EventHubEvent{}
 	}
 	if doc.AppConfigStores == nil {
 		doc.AppConfigStores = []AppConfigStore{}
@@ -2477,6 +2515,304 @@ WHERE namespace_name = ? AND topic_name = ? AND subscription_name = ? AND id = ?
 	return nil
 }
 
+func (s *Store) CreateEventHubNamespace(name string) (EventHubNamespace, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return EventHubNamespace{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return EventHubNamespace{}, false, err
+	}
+
+	var existing EventHubNamespace
+	err = db.QueryRow(`
+SELECT name, created_at, updated_at
+FROM event_hub_namespaces
+WHERE name = ?`, name).Scan(&existing.Name, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return EventHubNamespace{}, false, fmt.Errorf("read event hub namespace: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO event_hub_namespaces (name, created_at, updated_at)
+VALUES (?, ?, ?)`, name, nowValue, nowValue); err != nil {
+		return EventHubNamespace{}, false, fmt.Errorf("create event hub namespace: %w", err)
+	}
+
+	return EventHubNamespace{Name: name, CreatedAt: nowValue, UpdatedAt: nowValue}, true, nil
+}
+
+func (s *Store) ListEventHubNamespaces() ([]EventHubNamespace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM event_hub_namespaces
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list event hub namespaces: %w", err)
+	}
+	defer rows.Close()
+
+	var namespaces []EventHubNamespace
+	for rows.Next() {
+		var namespace EventHubNamespace
+		if err := rows.Scan(&namespace.Name, &namespace.CreatedAt, &namespace.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan event hub namespace: %w", err)
+		}
+		namespaces = append(namespaces, namespace)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event hub namespaces: %w", err)
+	}
+	return namespaces, nil
+}
+
+func (s *Store) CreateEventHub(namespaceName, hubName string) (EventHub, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return EventHub{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return EventHub{}, false, err
+	}
+
+	var namespaceExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM event_hub_namespaces WHERE name = ?
+)`, namespaceName).Scan(&namespaceExists); err != nil {
+		return EventHub{}, false, fmt.Errorf("query event hub namespace: %w", err)
+	}
+	if !namespaceExists {
+		return EventHub{}, false, sql.ErrNoRows
+	}
+
+	var existing EventHub
+	err = db.QueryRow(`
+SELECT namespace_name, name, created_at, updated_at
+FROM event_hubs
+WHERE namespace_name = ? AND name = ?`, namespaceName, hubName).Scan(
+		&existing.Namespace,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return EventHub{}, false, fmt.Errorf("read event hub: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO event_hubs (namespace_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, namespaceName, hubName, nowValue, nowValue); err != nil {
+		return EventHub{}, false, fmt.Errorf("create event hub: %w", err)
+	}
+
+	return EventHub{
+		Namespace: namespaceName,
+		Name:      hubName,
+		CreatedAt: nowValue,
+		UpdatedAt: nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListEventHubs(namespaceName string) ([]EventHub, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM event_hubs
+WHERE namespace_name = ?
+ORDER BY name`, namespaceName)
+	if err != nil {
+		return nil, fmt.Errorf("list event hubs: %w", err)
+	}
+	defer rows.Close()
+
+	var hubs []EventHub
+	for rows.Next() {
+		var hub EventHub
+		if err := rows.Scan(&hub.Namespace, &hub.Name, &hub.CreatedAt, &hub.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan event hub: %w", err)
+		}
+		hubs = append(hubs, hub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event hubs: %w", err)
+	}
+	return hubs, nil
+}
+
+func (s *Store) PublishEventHubEvent(namespaceName, hubName, body, partitionKey string) (EventHubEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return EventHubEvent{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return EventHubEvent{}, err
+	}
+
+	var hubExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM event_hubs WHERE namespace_name = ? AND name = ?
+)`, namespaceName, hubName).Scan(&hubExists); err != nil {
+		return EventHubEvent{}, fmt.Errorf("query event hub: %w", err)
+	}
+	if !hubExists {
+		return EventHubEvent{}, sql.ErrNoRows
+	}
+
+	var nextSequence int64
+	if err := db.QueryRow(`
+SELECT COALESCE(MAX(sequence_number), 0) + 1
+FROM event_hub_events
+WHERE namespace_name = ? AND hub_name = ?`, namespaceName, hubName).Scan(&nextSequence); err != nil {
+		return EventHubEvent{}, fmt.Errorf("query next event hub sequence: %w", err)
+	}
+
+	nowValue := now()
+	event := EventHubEvent{
+		Namespace:      namespaceName,
+		HubName:        hubName,
+		ID:             fmt.Sprintf("ehmsg-%d", time.Now().UTC().UnixNano()),
+		Body:           body,
+		PartitionKey:   partitionKey,
+		SequenceNumber: nextSequence,
+		Offset:         fmt.Sprintf("%d", nextSequence),
+		EnqueuedAt:     nowValue,
+		CreatedAt:      nowValue,
+		UpdatedAt:      nowValue,
+	}
+	if _, err := db.Exec(`
+INSERT INTO event_hub_events (namespace_name, hub_name, id, body, partition_key, sequence_number, offset, enqueued_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.Namespace,
+		event.HubName,
+		event.ID,
+		event.Body,
+		event.PartitionKey,
+		event.SequenceNumber,
+		event.Offset,
+		event.EnqueuedAt,
+		event.CreatedAt,
+		event.UpdatedAt,
+	); err != nil {
+		return EventHubEvent{}, fmt.Errorf("publish event hub event: %w", err)
+	}
+
+	return event, nil
+}
+
+func (s *Store) ListEventHubEvents(namespaceName, hubName string, fromSequenceNumber int64, maxEvents int) ([]EventHubEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+	if maxEvents <= 0 {
+		maxEvents = 100
+	}
+
+	var hubExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM event_hubs WHERE namespace_name = ? AND name = ?
+)`, namespaceName, hubName).Scan(&hubExists); err != nil {
+		return nil, fmt.Errorf("query event hub: %w", err)
+	}
+	if !hubExists {
+		return nil, sql.ErrNoRows
+	}
+
+	rows, err := db.Query(`
+SELECT namespace_name, hub_name, id, body, partition_key, sequence_number, offset, enqueued_at, created_at, updated_at
+FROM event_hub_events
+WHERE namespace_name = ? AND hub_name = ? AND sequence_number >= ?
+ORDER BY sequence_number
+LIMIT ?`, namespaceName, hubName, fromSequenceNumber, maxEvents)
+	if err != nil {
+		return nil, fmt.Errorf("list event hub events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []EventHubEvent
+	for rows.Next() {
+		var event EventHubEvent
+		if err := rows.Scan(
+			&event.Namespace,
+			&event.HubName,
+			&event.ID,
+			&event.Body,
+			&event.PartitionKey,
+			&event.SequenceNumber,
+			&event.Offset,
+			&event.EnqueuedAt,
+			&event.CreatedAt,
+			&event.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan event hub event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event hub events: %w", err)
+	}
+	return events, nil
+}
+
 func (s *Store) CreateAppConfigStore(name string) (AppConfigStore, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -4231,6 +4567,31 @@ CREATE TABLE IF NOT EXISTS service_bus_subscription_messages (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (namespace_name, topic_name, subscription_name, id)
 );
+CREATE TABLE IF NOT EXISTS event_hub_namespaces (
+    name TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_hubs (
+    namespace_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, name)
+);
+CREATE TABLE IF NOT EXISTS event_hub_events (
+    namespace_name TEXT NOT NULL,
+    hub_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    sequence_number INTEGER NOT NULL,
+    offset TEXT NOT NULL,
+    enqueued_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, hub_name, id)
+);
 CREATE TABLE IF NOT EXISTS app_config_stores (
     name TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -4717,6 +5078,77 @@ ORDER BY namespace_name, topic_name, subscription_name, created_at`)
 		return Document{}, fmt.Errorf("iterate service bus subscription messages: %w", err)
 	}
 
+	eventHubNamespaceRows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM event_hub_namespaces
+ORDER BY name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read event hub namespaces: %w", err)
+	}
+	defer eventHubNamespaceRows.Close()
+
+	for eventHubNamespaceRows.Next() {
+		var namespace EventHubNamespace
+		if err := eventHubNamespaceRows.Scan(&namespace.Name, &namespace.CreatedAt, &namespace.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan event hub namespace: %w", err)
+		}
+		doc.EventHubNamespaces = append(doc.EventHubNamespaces, namespace)
+	}
+	if err := eventHubNamespaceRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate event hub namespaces: %w", err)
+	}
+
+	eventHubRows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM event_hubs
+ORDER BY namespace_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read event hubs: %w", err)
+	}
+	defer eventHubRows.Close()
+
+	for eventHubRows.Next() {
+		var hub EventHub
+		if err := eventHubRows.Scan(&hub.Namespace, &hub.Name, &hub.CreatedAt, &hub.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan event hub: %w", err)
+		}
+		doc.EventHubs = append(doc.EventHubs, hub)
+	}
+	if err := eventHubRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate event hubs: %w", err)
+	}
+
+	eventHubEventRows, err := db.Query(`
+SELECT namespace_name, hub_name, id, body, partition_key, sequence_number, offset, enqueued_at, created_at, updated_at
+FROM event_hub_events
+ORDER BY namespace_name, hub_name, sequence_number`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read event hub events: %w", err)
+	}
+	defer eventHubEventRows.Close()
+
+	for eventHubEventRows.Next() {
+		var event EventHubEvent
+		if err := eventHubEventRows.Scan(
+			&event.Namespace,
+			&event.HubName,
+			&event.ID,
+			&event.Body,
+			&event.PartitionKey,
+			&event.SequenceNumber,
+			&event.Offset,
+			&event.EnqueuedAt,
+			&event.CreatedAt,
+			&event.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan event hub event: %w", err)
+		}
+		doc.EventHubEvents = append(doc.EventHubEvents, event)
+	}
+	if err := eventHubEventRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate event hub events: %w", err)
+	}
+
 	appConfigStoreRows, err := db.Query(`
 SELECT name, created_at, updated_at
 FROM app_config_stores
@@ -5109,6 +5541,10 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 		err = fmt.Errorf("clear service bus subscription messages: %w", err)
 		return err
 	}
+	if _, err = tx.Exec(`DELETE FROM event_hub_events`); err != nil {
+		err = fmt.Errorf("clear event hub events: %w", err)
+		return err
+	}
 	if _, err = tx.Exec(`DELETE FROM app_config_values`); err != nil {
 		err = fmt.Errorf("clear app config values: %w", err)
 		return err
@@ -5147,6 +5583,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM service_bus_namespaces`); err != nil {
 		err = fmt.Errorf("clear service bus namespaces: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM event_hubs`); err != nil {
+		err = fmt.Errorf("clear event hubs: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM event_hub_namespaces`); err != nil {
+		err = fmt.Errorf("clear event hub namespaces: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_tables`); err != nil {
@@ -5502,6 +5946,74 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			message.UpdatedAt,
 		); err != nil {
 			err = fmt.Errorf("insert service bus subscription message: %w", err)
+			return err
+		}
+	}
+	for _, namespace := range doc.EventHubNamespaces {
+		if namespace.CreatedAt == "" {
+			namespace.CreatedAt = doc.UpdatedAt
+		}
+		if namespace.UpdatedAt == "" {
+			namespace.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO event_hub_namespaces (name, created_at, updated_at) VALUES (?, ?, ?)`,
+			namespace.Name,
+			namespace.CreatedAt,
+			namespace.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert event hub namespace: %w", err)
+			return err
+		}
+	}
+	for _, hub := range doc.EventHubs {
+		if hub.CreatedAt == "" {
+			hub.CreatedAt = doc.UpdatedAt
+		}
+		if hub.UpdatedAt == "" {
+			hub.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO event_hubs (namespace_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			hub.Namespace,
+			hub.Name,
+			hub.CreatedAt,
+			hub.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert event hub: %w", err)
+			return err
+		}
+	}
+	for _, event := range doc.EventHubEvents {
+		if event.ID == "" {
+			event.ID = fmt.Sprintf("ehmsg-%d", time.Now().UTC().UnixNano())
+		}
+		if event.Offset == "" {
+			event.Offset = fmt.Sprintf("%d", event.SequenceNumber)
+		}
+		if event.EnqueuedAt == "" {
+			event.EnqueuedAt = doc.UpdatedAt
+		}
+		if event.CreatedAt == "" {
+			event.CreatedAt = doc.UpdatedAt
+		}
+		if event.UpdatedAt == "" {
+			event.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO event_hub_events (namespace_name, hub_name, id, body, partition_key, sequence_number, offset, enqueued_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			event.Namespace,
+			event.HubName,
+			event.ID,
+			event.Body,
+			event.PartitionKey,
+			event.SequenceNumber,
+			event.Offset,
+			event.EnqueuedAt,
+			event.CreatedAt,
+			event.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert event hub event: %w", err)
 			return err
 		}
 	}
@@ -5887,6 +6399,9 @@ func newDocument() Document {
 		ServiceBusTopics:               []ServiceBusTopic{},
 		ServiceBusSubscriptions:        []ServiceBusSubscription{},
 		ServiceBusSubscriptionMessages: []ServiceBusSubscriptionMessage{},
+		EventHubNamespaces:             []EventHubNamespace{},
+		EventHubs:                      []EventHub{},
+		EventHubEvents:                 []EventHubEvent{},
 		AppConfigStores:                []AppConfigStore{},
 		AppConfigValues:                []AppConfigValue{},
 		CosmosAccounts:                 []CosmosAccount{},
