@@ -554,6 +554,31 @@ func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	outputsJSON := `{}`
+	provisioningState := "Succeeded"
+	errorCode := ""
+	errorMessage := ""
+	if len(body.Properties.Parameters) > 0 && string(body.Properties.Parameters) != "null" && string(body.Properties.Parameters) != "{}" {
+		provisioningState = "Failed"
+		errorCode = "DeploymentNotSupported"
+		errorMessage = "deployment parameters are not supported"
+	} else if len(body.Properties.Template) > 0 && string(body.Properties.Template) != "null" {
+		result, err := executeDeploymentTemplate(
+			h.store,
+			h.cfg,
+			r.PathValue("subscriptionId"),
+			r.PathValue("resourceGroupName"),
+			body.Properties.Template,
+		)
+		if err != nil {
+			provisioningState = "Failed"
+			errorCode = "DeploymentNotSupported"
+			errorMessage = err.Error()
+		} else {
+			outputsJSON = result.outputsJSON
+		}
+	}
+
 	deployment, err := h.store.UpsertDeployment(
 		r.PathValue("subscriptionId"),
 		r.PathValue("resourceGroupName"),
@@ -562,10 +587,10 @@ func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
 		body.Properties.Mode,
 		string(body.Properties.Template),
 		string(body.Properties.Parameters),
-		`{}`,
-		"Failed",
-		"DeploymentNotSupported",
-		"ARM deployment execution is not implemented yet",
+		outputsJSON,
+		provisioningState,
+		errorCode,
+		errorMessage,
 		body.Tags,
 	)
 	if err != nil {
@@ -577,7 +602,7 @@ func (h *Handler) putDeployment(w http.ResponseWriter, r *http.Request) {
 		r.PathValue("subscriptionId"),
 		deployment.ID,
 		"Microsoft.Resources/deployments/write",
-		"Failed",
+		deployment.ProvisioningState,
 		deployment.ErrorCode,
 		deployment.ErrorMessage,
 	)

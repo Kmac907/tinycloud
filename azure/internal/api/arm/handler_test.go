@@ -517,6 +517,97 @@ func TestDeploymentRoutesPersistFailedRecordAndOperation(t *testing.T) {
 	}
 }
 
+func TestDeploymentRoutesCreateSupportedResources(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	cfg := config.FromEnv()
+	mux := http.NewServeMux()
+	NewHandler(store, cfg).Register(mux)
+
+	body := `{
+		"location":"westus2",
+		"properties":{
+			"mode":"Incremental",
+			"template":{
+				"resources":[
+					{
+						"type":"Microsoft.Storage/storageAccounts",
+						"name":"storedeploy",
+						"location":"westus2",
+						"sku":{"name":"Standard_LRS"}
+					},
+					{
+						"type":"Microsoft.KeyVault/vaults",
+						"name":"vaultdeploy",
+						"location":"westus2",
+						"properties":{"tenantId":"tenant-123"},
+						"sku":{"name":"standard"}
+					}
+				]
+			}
+		}
+	}`
+	createReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Resources/deployments/deploy-supported?api-version=2024-01-01", strings.NewReader(body))
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
+
+	if createRec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", createRec.Code, http.StatusAccepted)
+	}
+
+	var createBody map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createBody); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	properties, _ := createBody["properties"].(map[string]any)
+	if properties["provisioningState"] != "Succeeded" {
+		t.Fatalf("provisioningState = %v, want %q", properties["provisioningState"], "Succeeded")
+	}
+	if _, ok := properties["error"]; ok {
+		t.Fatalf("error = %v, want absent", properties["error"])
+	}
+	outputs, _ := properties["outputs"].(map[string]any)
+	createdResources, _ := outputs["createdResources"].(map[string]any)
+	value, _ := createdResources["value"].([]any)
+	if len(value) != 2 {
+		t.Fatalf("len(outputs.createdResources.value) = %d, want %d", len(value), 2)
+	}
+
+	if _, err := store.GetStorageAccount("test-sub", "rg-one", "storedeploy"); err != nil {
+		t.Fatalf("GetStorageAccount() error = %v", err)
+	}
+	if _, err := store.GetKeyVault("test-sub", "rg-one", "vaultdeploy"); err != nil {
+		t.Fatalf("GetKeyVault() error = %v", err)
+	}
+
+	operationPath := createRec.Header().Get("Azure-AsyncOperation")
+	opReq := httptest.NewRequest(http.MethodGet, operationPath+"?api-version=2024-01-01", nil)
+	opRec := httptest.NewRecorder()
+	mux.ServeHTTP(opRec, opReq)
+	if opRec.Code != http.StatusOK {
+		t.Fatalf("operation status = %d, want %d", opRec.Code, http.StatusOK)
+	}
+	var opBody map[string]any
+	if err := json.Unmarshal(opRec.Body.Bytes(), &opBody); err != nil {
+		t.Fatalf("json.Unmarshal() operation error = %v", err)
+	}
+	if opBody["status"] != "Succeeded" {
+		t.Fatalf("operation status = %v, want %q", opBody["status"], "Succeeded")
+	}
+}
+
 func TestGetResourceGroupReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
