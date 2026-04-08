@@ -1,5 +1,10 @@
 # TinyCloud Azure Emulator
 
+[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](#)
+[![Docker](https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
+[![Azure Scope](https://img.shields.io/badge/Azure-ARM%20%2B%20Blob-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white)](#current-emulation-scope)
+[![X Kyle Andrew Mac](https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/Kyle_Andrew_Mac)
+
 Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, and Blob workflows.
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
