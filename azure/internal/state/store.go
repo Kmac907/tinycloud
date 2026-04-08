@@ -27,6 +27,7 @@ type Document struct {
 	BlobContainers  []BlobContainer          `json:"blobContainers,omitempty"`
 	Blobs           []BlobObject             `json:"blobs,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
+	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
 	Deployments     []Deployment             `json:"deployments,omitempty"`
 }
 
@@ -94,6 +95,20 @@ type StorageAccount struct {
 	Name              string            `json:"name"`
 	Location          string            `json:"location"`
 	Kind              string            `json:"kind"`
+	SKUName           string            `json:"skuName"`
+	Tags              map[string]string `json:"tags"`
+	ProvisioningState string            `json:"provisioningState"`
+	CreatedAt         string            `json:"createdAt"`
+	UpdatedAt         string            `json:"updatedAt"`
+}
+
+type KeyVault struct {
+	ID                string            `json:"id"`
+	SubscriptionID    string            `json:"subscriptionId"`
+	ResourceGroupName string            `json:"resourceGroupName"`
+	Name              string            `json:"name"`
+	Location          string            `json:"location"`
+	TenantID          string            `json:"tenantId"`
 	SKUName           string            `json:"skuName"`
 	Tags              map[string]string `json:"tags"`
 	ProvisioningState string            `json:"provisioningState"`
@@ -261,6 +276,9 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
+	}
+	if doc.KeyVaults == nil {
+		doc.KeyVaults = []KeyVault{}
 	}
 	if doc.Deployments == nil {
 		doc.Deployments = []Deployment{}
@@ -1060,6 +1078,149 @@ WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptio
 	return nil
 }
 
+func (s *Store) UpsertKeyVault(subscriptionID, resourceGroupName, name, location, tenantID, skuName string, tags map[string]string) (KeyVault, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return KeyVault{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return KeyVault{}, err
+	}
+
+	if tags == nil {
+		tags = map[string]string{}
+	}
+	if tenantID == "" {
+		tenantID = defaultTenantID
+	}
+	if skuName == "" {
+		skuName = "standard"
+	}
+
+	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s", subscriptionID, resourceGroupName, name)
+	nowValue := now()
+
+	var createdAt string
+	err = db.QueryRow(`SELECT created_at FROM key_vaults WHERE id = ?`, id).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return KeyVault{}, fmt.Errorf("read existing key vault: %w", err)
+	}
+
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return KeyVault{}, fmt.Errorf("marshal key vault tags: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO key_vaults (
+    id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    location = excluded.location,
+    tenant_id = excluded.tenant_id,
+    sku_name = excluded.sku_name,
+    tags_json = excluded.tags_json,
+    provisioning_state = excluded.provisioning_state,
+    updated_at = excluded.updated_at
+`, id, subscriptionID, resourceGroupName, name, location, tenantID, skuName, string(tagsJSON), "Succeeded", createdAt, nowValue); err != nil {
+		return KeyVault{}, fmt.Errorf("upsert key vault: %w", err)
+	}
+
+	return s.getKeyVaultLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) GetKeyVault(subscriptionID, resourceGroupName, name string) (KeyVault, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return KeyVault{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return KeyVault{}, err
+	}
+
+	return s.getKeyVaultLocked(db, subscriptionID, resourceGroupName, name)
+}
+
+func (s *Store) ListKeyVaults(subscriptionID, resourceGroupName string) ([]KeyVault, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM key_vaults
+WHERE subscription_id = ? AND resource_group_name = ?
+ORDER BY name`, subscriptionID, resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("list key vaults: %w", err)
+	}
+	defer rows.Close()
+
+	var vaults []KeyVault
+	for rows.Next() {
+		vault, err := scanKeyVault(rows)
+		if err != nil {
+			return nil, err
+		}
+		vaults = append(vaults, vault)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate key vaults: %w", err)
+	}
+	return vaults, nil
+}
+
+func (s *Store) DeleteKeyVault(subscriptionID, resourceGroupName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM key_vaults
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	if err != nil {
+		return fmt.Errorf("delete key vault: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete key vault rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertDeployment(subscriptionID, resourceGroupName, name, location, mode, templateJSON, parametersJSON, outputsJSON, provisioningState, errorCode, errorMessage string, tags map[string]string) (Deployment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1229,6 +1390,19 @@ CREATE TABLE IF NOT EXISTS storage_accounts (
     name TEXT NOT NULL,
     location TEXT NOT NULL,
     kind TEXT NOT NULL,
+    sku_name TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    provisioning_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS key_vaults (
+    id TEXT PRIMARY KEY,
+    subscription_id TEXT NOT NULL,
+    resource_group_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
     sku_name TEXT NOT NULL,
     tags_json TEXT NOT NULL,
     provisioning_state TEXT NOT NULL,
@@ -1406,6 +1580,26 @@ ORDER BY subscription_id, resource_group_name, name`)
 		return Document{}, fmt.Errorf("iterate storage accounts: %w", err)
 	}
 
+	keyVaultRows, err := db.Query(`
+SELECT id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM key_vaults
+ORDER BY subscription_id, resource_group_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read key vaults: %w", err)
+	}
+	defer keyVaultRows.Close()
+
+	for keyVaultRows.Next() {
+		vault, err := scanKeyVault(keyVaultRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.KeyVaults = append(doc.KeyVaults, vault)
+	}
+	if err := keyVaultRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate key vaults: %w", err)
+	}
+
 	deploymentRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, mode, template_json, parameters_json, outputs_json, tags_json, provisioning_state, error_code, error_message, created_at, updated_at
 FROM deployments
@@ -1474,6 +1668,9 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
+	if doc.KeyVaults == nil {
+		doc.KeyVaults = []KeyVault{}
+	}
 	if doc.Deployments == nil {
 		doc.Deployments = []Deployment{}
 	}
@@ -1502,6 +1699,10 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_accounts`); err != nil {
 		err = fmt.Errorf("clear storage accounts: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM key_vaults`); err != nil {
+		err = fmt.Errorf("clear key vaults: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM deployments`); err != nil {
@@ -1645,6 +1846,48 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, vault := range doc.KeyVaults {
+		if vault.TenantID == "" {
+			vault.TenantID = defaultTenantID
+		}
+		if vault.SKUName == "" {
+			vault.SKUName = "standard"
+		}
+		if vault.Tags == nil {
+			vault.Tags = map[string]string{}
+		}
+		if vault.ProvisioningState == "" {
+			vault.ProvisioningState = "Succeeded"
+		}
+		if vault.CreatedAt == "" {
+			vault.CreatedAt = doc.UpdatedAt
+		}
+		if vault.UpdatedAt == "" {
+			vault.UpdatedAt = doc.UpdatedAt
+		}
+		tagsJSON, marshalErr := json.Marshal(vault.Tags)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal key vault tags: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO key_vaults (id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			vault.ID,
+			vault.SubscriptionID,
+			vault.ResourceGroupName,
+			vault.Name,
+			vault.Location,
+			vault.TenantID,
+			vault.SKUName,
+			string(tagsJSON),
+			vault.ProvisioningState,
+			vault.CreatedAt,
+			vault.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert key vault: %w", err)
+			return err
+		}
+	}
 	for _, deployment := range doc.Deployments {
 		if deployment.Mode == "" {
 			deployment.Mode = "Incremental"
@@ -1717,6 +1960,7 @@ func newDocument() Document {
 		BlobContainers:  []BlobContainer{},
 		Blobs:           []BlobObject{},
 		StorageAccounts: []StorageAccount{},
+		KeyVaults:       []KeyVault{},
 		Deployments:     []Deployment{},
 	}
 }
@@ -1796,6 +2040,43 @@ func scanStorageAccount(scanner interface {
 		account.Tags = map[string]string{}
 	}
 	return account, nil
+}
+
+func (s *Store) getKeyVaultLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (KeyVault, error) {
+	row := db.QueryRow(`
+SELECT id, subscription_id, resource_group_name, name, location, tenant_id, sku_name, tags_json, provisioning_state, created_at, updated_at
+FROM key_vaults
+WHERE subscription_id = ? AND resource_group_name = ? AND name = ?`, subscriptionID, resourceGroupName, name)
+	return scanKeyVault(row)
+}
+
+func scanKeyVault(scanner interface {
+	Scan(dest ...any) error
+}) (KeyVault, error) {
+	var vault KeyVault
+	var tagsJSON string
+	if err := scanner.Scan(
+		&vault.ID,
+		&vault.SubscriptionID,
+		&vault.ResourceGroupName,
+		&vault.Name,
+		&vault.Location,
+		&vault.TenantID,
+		&vault.SKUName,
+		&tagsJSON,
+		&vault.ProvisioningState,
+		&vault.CreatedAt,
+		&vault.UpdatedAt,
+	); err != nil {
+		return KeyVault{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &vault.Tags); err != nil {
+		return KeyVault{}, fmt.Errorf("parse key vault tags: %w", err)
+	}
+	if vault.Tags == nil {
+		vault.Tags = map[string]string{}
+	}
+	return vault, nil
 }
 
 func (s *Store) getDeploymentLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (Deployment, error) {

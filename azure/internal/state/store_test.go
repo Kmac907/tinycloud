@@ -447,6 +447,92 @@ func TestStorageAccountCRUD(t *testing.T) {
 	}
 }
 
+func TestKeyVaultCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	vault, err := store.UpsertKeyVault("sub-123", "rg-test", "vaulttest", "westus2", "tenant-123", "standard", map[string]string{"env": "test"})
+	if err != nil {
+		t.Fatalf("UpsertKeyVault() error = %v", err)
+	}
+	if vault.Name != "vaulttest" {
+		t.Fatalf("Name = %q, want %q", vault.Name, "vaulttest")
+	}
+
+	got, err := store.GetKeyVault("sub-123", "rg-test", "vaulttest")
+	if err != nil {
+		t.Fatalf("GetKeyVault() error = %v", err)
+	}
+	if got.TenantID != "tenant-123" {
+		t.Fatalf("TenantID = %q, want %q", got.TenantID, "tenant-123")
+	}
+
+	vaults, err := store.ListKeyVaults("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListKeyVaults() error = %v", err)
+	}
+	if len(vaults) != 1 {
+		t.Fatalf("len(vaults) = %d, want %d", len(vaults), 1)
+	}
+
+	if err := store.DeleteKeyVault("sub-123", "rg-test", "vaulttest"); err != nil {
+		t.Fatalf("DeleteKeyVault() error = %v", err)
+	}
+	vaults, err = store.ListKeyVaults("sub-123", "rg-test")
+	if err != nil {
+		t.Fatalf("ListKeyVaults() after delete error = %v", err)
+	}
+	if len(vaults) != 0 {
+		t.Fatalf("len(vaults) after delete = %d, want %d", len(vaults), 0)
+	}
+}
+
+func TestSnapshotAndRestorePreserveKeyVaultState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertKeyVault("sub-123", "rg-test", "vaulttest", "westus2", "tenant-123", "standard", map[string]string{"env": "test"}); err != nil {
+		t.Fatalf("UpsertKeyVault() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "keyvault.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	vault, err := restoreStore.GetKeyVault("sub-123", "rg-test", "vaulttest")
+	if err != nil {
+		t.Fatalf("GetKeyVault() error = %v", err)
+	}
+	if vault.TenantID != "tenant-123" {
+		t.Fatalf("TenantID = %q, want %q", vault.TenantID, "tenant-123")
+	}
+}
+
 func TestDeploymentCRUD(t *testing.T) {
 	t.Parallel()
 
