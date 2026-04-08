@@ -4,10 +4,12 @@
 
 <h1 align="center">TinyCloud Azure Emulator</h1>
 
-[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](#)
-[![Docker](https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
-[![Azure Scope](https://img.shields.io/badge/Azure-ARM%20%2B%20Blob-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white)](#current-emulation-scope)
-[![X Kyle Andrew Mac](https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/Kyle_Andrew_Mac)
+<p align="center">
+  <a href="#"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Single Container" /></a>
+  <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Blob-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM and Blob" /></a>
+  <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
+</p>
 
 <p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, and Blob workflows.</sub></p>
 
