@@ -11,14 +11,14 @@
   <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
 </p>
 
-<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, secrets, messaging, and event streaming workflows.</sub></p>
+<p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, network security, secrets, messaging, and event streaming workflows.</sub></p>
 
 TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
 
 - Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
 - metadata, OAuth, and minimal IMDS-style managed identity endpoints
-- real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, Service Bus, and Event Hubs behavior on dedicated service ports
+- real Blob, Queue Storage, Table Storage, Cosmos DB, private DNS, App Configuration, Key Vault secrets, Service Bus, Event Hubs, and basic network-security behavior on dedicated service ports
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
 TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
@@ -27,7 +27,7 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 Current status across the listed emulator areas:
 
-- `16` implemented
+- `17` implemented
 - `1` partial
 - `0` not implemented yet
 
@@ -47,6 +47,7 @@ Current status across the listed emulator areas:
 | Service Bus | Implemented | Namespaces, queues, topics, subscriptions, send/publish, receive, delete |
 | Event Hubs | Implemented | Namespaces, hubs, publish, and ordered event reads |
 | Virtual Networks | Implemented | ARM CRUD for virtual networks and subnets |
+| Network Security Groups | Implemented | ARM CRUD for NSGs and nested security rules |
 | Queue Storage | Implemented | Queue create/list and message send/receive/delete |
 | Table Storage | Implemented | Table create/list/delete and entity upsert/get/list/delete |
 | Cosmos DB | Implemented | Account, database, container, and document CRUD on the dedicated Cosmos listener |
@@ -65,6 +66,8 @@ Current status across the listed emulator areas:
   - Key Vault resource CRUD
   - virtual network CRUD
   - subnet CRUD
+  - network security group CRUD
+  - network security rule CRUD
   - private DNS zone CRUD
   - private DNS A-record CRUD
   - deployment record/status routes
@@ -179,6 +182,20 @@ Invoke-RestMethod -Method Put `
 Invoke-RestMethod -Method Put `
   "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/virtualNetworks/vnet-local/subnets/frontend?api-version=2024-01-01" `
   -Body '{"properties":{"addressPrefix":"10.0.1.0/24"}}' `
+  -ContentType "application/json"
+```
+
+Create a network security group and rule:
+
+```powershell
+Invoke-RestMethod -Method Put `
+  "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/networkSecurityGroups/nsg-local?api-version=2024-01-01" `
+  -Body '{"location":"westus2","tags":{"env":"dev"}}' `
+  -ContentType "application/json"
+
+Invoke-RestMethod -Method Put `
+  "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/networkSecurityGroups/nsg-local/securityRules/allow-https?api-version=2024-01-01" `
+  -Body '{"properties":{"access":"Allow","direction":"Inbound","protocol":"Tcp","sourceAddressPrefix":"*","sourcePortRange":"*","destinationAddressPrefix":"*","destinationPortRange":"443","priority":100}}' `
   -ContentType "application/json"
 ```
 
@@ -515,6 +532,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:4581/namespaces" -Body '{"name"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4582/stores" -Body '{"name":"tiny-settings"}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4583/accounts" -Body '{"name":"local-cosmos"}' -ContentType "application/json"
 Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/virtualNetworks/vnet-local?api-version=2024-01-01" -Body '{"location":"westus2","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}' -ContentType "application/json"
+Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/networkSecurityGroups/nsg-local?api-version=2024-01-01" -Body '{"location":"westus2"}' -ContentType "application/json"
 Invoke-RestMethod -Method Put "http://127.0.0.1:4566/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-local/providers/Microsoft.Network/privateDnsZones/internal.test?api-version=2024-01-01" -Body '{}' -ContentType "application/json"
 Invoke-RestMethod -Method Post "http://127.0.0.1:4585/namespaces" -Body '{"name":"local-streaming"}' -ContentType "application/json"
 ```

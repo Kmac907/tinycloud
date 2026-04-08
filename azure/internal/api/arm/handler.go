@@ -51,6 +51,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.putSubnet)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.getSubnet)
 	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{virtualNetworkName}/subnets/{subnetName}", h.deleteSubnet)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups", h.listNetworkSecurityGroups)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}", h.putNetworkSecurityGroup)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}", h.getNetworkSecurityGroup)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}", h.deleteNetworkSecurityGroup)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}/securityRules", h.listNetworkSecurityRules)
+	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}/securityRules/{securityRuleName}", h.putNetworkSecurityRule)
+	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}/securityRules/{securityRuleName}", h.getNetworkSecurityRule)
+	mux.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}/securityRules/{securityRuleName}", h.deleteNetworkSecurityRule)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones", h.listPrivateDNSZones)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.putPrivateDNSZone)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/privateDnsZones/{zoneName}", h.getPrivateDNSZone)
@@ -787,6 +795,284 @@ func (h *Handler) deleteSubnet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+func (h *Handler) listNetworkSecurityGroups(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	groups, err := h.store.ListNetworkSecurityGroups(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(groups))
+	for _, group := range groups {
+		body, err := h.networkSecurityGroupResponse(group)
+		if err != nil {
+			httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+			return
+		}
+		value = append(value, body)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putNetworkSecurityGroup(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	var body struct {
+		Location string            `json:"location"`
+		Tags     map[string]string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Location == "" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "MissingLocation", "network security group location is required")
+		return
+	}
+
+	group, err := h.store.UpsertNetworkSecurityGroup(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("networkSecurityGroupName"),
+		body.Location,
+		body.Tags,
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		group.ID,
+		"Microsoft.Network/networkSecurityGroups/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	response, err := h.networkSecurityGroupResponse(group)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, response)
+}
+
+func (h *Handler) getNetworkSecurityGroup(w http.ResponseWriter, r *http.Request) {
+	group, err := h.store.GetNetworkSecurityGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security group was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	response, err := h.networkSecurityGroupResponse(group)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) deleteNetworkSecurityGroup(w http.ResponseWriter, r *http.Request) {
+	group, err := h.store.GetNetworkSecurityGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security group was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteNetworkSecurityGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security group was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		group.ID,
+		"Microsoft.Network/networkSecurityGroups/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) listNetworkSecurityRules(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.store.GetNetworkSecurityGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName")); errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security group was not found")
+		return
+	} else if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	rules, err := h.store.ListNetworkSecurityRules(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"))
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		value = append(value, networkSecurityRuleResponse(rule))
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
+func (h *Handler) putNetworkSecurityRule(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Properties struct {
+			Access                   string `json:"access"`
+			Direction                string `json:"direction"`
+			Protocol                 string `json:"protocol"`
+			SourceAddressPrefix      string `json:"sourceAddressPrefix"`
+			SourcePortRange          string `json:"sourcePortRange"`
+			DestinationAddressPrefix string `json:"destinationAddressPrefix"`
+			DestinationPortRange     string `json:"destinationPortRange"`
+			Priority                 int    `json:"priority"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "request body must be valid JSON")
+		return
+	}
+	if body.Properties.Access == "" || body.Properties.Direction == "" || body.Properties.Protocol == "" || body.Properties.SourceAddressPrefix == "" || body.Properties.SourcePortRange == "" || body.Properties.DestinationAddressPrefix == "" || body.Properties.DestinationPortRange == "" || body.Properties.Priority == 0 {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "network security rule requires access, direction, protocol, source/destination prefixes, source/destination port ranges, and priority")
+		return
+	}
+	if body.Properties.Access != "Allow" && body.Properties.Access != "Deny" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "network security rule access must be Allow or Deny")
+		return
+	}
+	if body.Properties.Direction != "Inbound" && body.Properties.Direction != "Outbound" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "network security rule direction must be Inbound or Outbound")
+		return
+	}
+	if body.Properties.Protocol != "*" && body.Properties.Protocol != "Tcp" && body.Properties.Protocol != "Udp" {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", "network security rule protocol must be *, Tcp, or Udp")
+		return
+	}
+
+	rule, err := h.store.UpsertNetworkSecurityRule(
+		r.PathValue("subscriptionId"),
+		r.PathValue("resourceGroupName"),
+		r.PathValue("networkSecurityGroupName"),
+		r.PathValue("securityRuleName"),
+		body.Properties.Access,
+		body.Properties.Direction,
+		body.Properties.Protocol,
+		body.Properties.SourceAddressPrefix,
+		body.Properties.SourcePortRange,
+		body.Properties.DestinationAddressPrefix,
+		body.Properties.DestinationPortRange,
+		body.Properties.Priority,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security group was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusBadRequest, "InvalidRequestContent", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		rule.ID,
+		"Microsoft.Network/networkSecurityGroups/securityRules/write",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	httpx.WriteJSON(w, http.StatusAccepted, networkSecurityRuleResponse(rule))
+}
+
+func (h *Handler) getNetworkSecurityRule(w http.ResponseWriter, r *http.Request) {
+	rule, err := h.store.GetNetworkSecurityRule(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"), r.PathValue("securityRuleName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security rule was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, networkSecurityRuleResponse(rule))
+}
+
+func (h *Handler) deleteNetworkSecurityRule(w http.ResponseWriter, r *http.Request) {
+	rule, err := h.store.GetNetworkSecurityRule(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"), r.PathValue("securityRuleName"))
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security rule was not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	if err := h.store.DeleteNetworkSecurityRule(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName"), r.PathValue("networkSecurityGroupName"), r.PathValue("securityRuleName")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteCloudError(w, http.StatusNotFound, "ResourceNotFound", "the network security rule was not found")
+			return
+		}
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	operation, err := h.store.CreateOperation(
+		r.PathValue("subscriptionId"),
+		rule.ID,
+		"Microsoft.Network/networkSecurityGroups/securityRules/delete",
+		"Succeeded",
+	)
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	setAsyncHeaders(w, operation)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (h *Handler) listPrivateDNSZones(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.GetResourceGroup(r.PathValue("subscriptionId"), r.PathValue("resourceGroupName")); errors.Is(err, sql.ErrNoRows) {
 		httpx.WriteCloudError(w, http.StatusNotFound, "ResourceGroupNotFound", "the resource group was not found")
@@ -1263,6 +1549,47 @@ func subnetResponse(subnet state.Subnet) map[string]any {
 		"properties": map[string]any{
 			"addressPrefix":     subnet.AddressPrefix,
 			"provisioningState": subnet.ProvisioningState,
+		},
+	}
+}
+
+func (h *Handler) networkSecurityGroupResponse(group state.NetworkSecurityGroup) (map[string]any, error) {
+	rules, err := h.store.ListNetworkSecurityRules(group.SubscriptionID, group.ResourceGroupName, group.Name)
+	if err != nil {
+		return nil, err
+	}
+	ruleBodies := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		ruleBodies = append(ruleBodies, networkSecurityRuleResponse(rule))
+	}
+	return map[string]any{
+		"id":       group.ID,
+		"name":     group.Name,
+		"type":     "Microsoft.Network/networkSecurityGroups",
+		"location": group.Location,
+		"tags":     group.Tags,
+		"properties": map[string]any{
+			"securityRules":     ruleBodies,
+			"provisioningState": group.ProvisioningState,
+		},
+	}, nil
+}
+
+func networkSecurityRuleResponse(rule state.NetworkSecurityRule) map[string]any {
+	return map[string]any{
+		"id":   rule.ID,
+		"name": rule.Name,
+		"type": "Microsoft.Network/networkSecurityGroups/securityRules",
+		"properties": map[string]any{
+			"access":                   rule.Access,
+			"direction":                rule.Direction,
+			"protocol":                 rule.Protocol,
+			"sourceAddressPrefix":      rule.SourceAddressPrefix,
+			"sourcePortRange":          rule.SourcePortRange,
+			"destinationAddressPrefix": rule.DestinationAddressPrefix,
+			"destinationPortRange":     rule.DestinationPortRange,
+			"priority":                 rule.Priority,
+			"provisioningState":        rule.ProvisioningState,
 		},
 	}
 }

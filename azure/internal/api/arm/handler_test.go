@@ -513,6 +513,137 @@ func TestPutSubnetRequiresExistingVirtualNetwork(t *testing.T) {
 	}
 }
 
+func TestNetworkSecurityGroupAndRuleCRUD(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	createGroupReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one?api-version=2024-01-01", strings.NewReader(`{"location":"westus2","tags":{"env":"test"}}`))
+	createGroupRec := httptest.NewRecorder()
+	mux.ServeHTTP(createGroupRec, createGroupReq)
+	if createGroupRec.Code != http.StatusAccepted {
+		t.Fatalf("create nsg status = %d, want %d", createGroupRec.Code, http.StatusAccepted)
+	}
+
+	listGroupReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups?api-version=2024-01-01", nil)
+	listGroupRec := httptest.NewRecorder()
+	mux.ServeHTTP(listGroupRec, listGroupReq)
+	if listGroupRec.Code != http.StatusOK {
+		t.Fatalf("list nsg status = %d, want %d", listGroupRec.Code, http.StatusOK)
+	}
+	if !strings.Contains(listGroupRec.Body.String(), `"name":"nsg-one"`) {
+		t.Fatalf("list nsg body = %q, want nsg name", listGroupRec.Body.String())
+	}
+
+	createRuleReq := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one/securityRules/allow-https?api-version=2024-01-01", strings.NewReader(`{"properties":{"access":"Allow","direction":"Inbound","protocol":"Tcp","sourceAddressPrefix":"*","sourcePortRange":"*","destinationAddressPrefix":"*","destinationPortRange":"443","priority":100}}`))
+	createRuleRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRuleRec, createRuleReq)
+	if createRuleRec.Code != http.StatusAccepted {
+		t.Fatalf("create rule status = %d, want %d", createRuleRec.Code, http.StatusAccepted)
+	}
+
+	getGroupReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one?api-version=2024-01-01", nil)
+	getGroupRec := httptest.NewRecorder()
+	mux.ServeHTTP(getGroupRec, getGroupReq)
+	if getGroupRec.Code != http.StatusOK {
+		t.Fatalf("get nsg status = %d, want %d", getGroupRec.Code, http.StatusOK)
+	}
+	if !strings.Contains(getGroupRec.Body.String(), `"securityRules":[`) {
+		t.Fatalf("get nsg body = %q, want securityRules", getGroupRec.Body.String())
+	}
+
+	getRuleReq := httptest.NewRequest(http.MethodGet, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one/securityRules/allow-https?api-version=2024-01-01", nil)
+	getRuleRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRuleRec, getRuleReq)
+	if getRuleRec.Code != http.StatusOK {
+		t.Fatalf("get rule status = %d, want %d", getRuleRec.Code, http.StatusOK)
+	}
+
+	deleteRuleReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one/securityRules/allow-https?api-version=2024-01-01", nil)
+	deleteRuleRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteRuleRec, deleteRuleReq)
+	if deleteRuleRec.Code != http.StatusAccepted {
+		t.Fatalf("delete rule status = %d, want %d", deleteRuleRec.Code, http.StatusAccepted)
+	}
+
+	deleteGroupReq := httptest.NewRequest(http.MethodDelete, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one?api-version=2024-01-01", nil)
+	deleteGroupRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteGroupRec, deleteGroupReq)
+	if deleteGroupRec.Code != http.StatusAccepted {
+		t.Fatalf("delete nsg status = %d, want %d", deleteGroupRec.Code, http.StatusAccepted)
+	}
+}
+
+func TestPutNetworkSecurityRuleRequiresExistingGroup(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one/securityRules/allow-https?api-version=2024-01-01", strings.NewReader(`{"properties":{"access":"Allow","direction":"Inbound","protocol":"Tcp","sourceAddressPrefix":"*","sourcePortRange":"*","destinationAddressPrefix":"*","destinationPortRange":"443","priority":100}}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestPutNetworkSecurityRuleRejectsInvalidPriority(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertResourceGroup("test-sub", "rg-one", "westus2", "", nil); err != nil {
+		t.Fatalf("UpsertResourceGroup() error = %v", err)
+	}
+	if _, err := store.UpsertNetworkSecurityGroup("test-sub", "rg-one", "nsg-one", "westus2", nil); err != nil {
+		t.Fatalf("UpsertNetworkSecurityGroup() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodPut, "/subscriptions/test-sub/resourceGroups/rg-one/providers/Microsoft.Network/networkSecurityGroups/nsg-one/securityRules/allow-https?api-version=2024-01-01", strings.NewReader(`{"properties":{"access":"Allow","direction":"Inbound","protocol":"Tcp","sourceAddressPrefix":"*","sourcePortRange":"*","destinationAddressPrefix":"*","destinationPortRange":"443","priority":99}}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestPrivateDNSZoneAndRecordSetCRUD(t *testing.T) {
 	t.Parallel()
 
