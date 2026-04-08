@@ -1,14 +1,16 @@
 # TinyCloud Azure Emulator
 
-TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single Docker container. It currently emulates a focused Azure subset:
+Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, and Blob workflows.
 
-- ARM control plane for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
+TinyCloud is a local Azure-compatible emulator written in Go and packaged as a single container. It provides a compact Azure development environment for local iteration and CI by combining:
+
+- Azure Resource Manager support for tenants, subscriptions, providers, resource groups, storage accounts, and Key Vault resources
 - Azure-style async operation polling for supported control-plane writes
-- metadata and minimal managed identity/token endpoints
-- Blob Storage data-plane with real container/blob behavior
+- metadata, OAuth, and minimal IMDS-style managed identity endpoints
+- real Blob Storage container and blob behavior on a dedicated service port
 - admin/runtime endpoints for health, metrics, reset, snapshot, and seed
 
-It is intended for local development and CI, not full Azure parity.
+TinyCloud is designed for targeted local Azure workflow testing, not full Azure parity.
 
 ## Current Emulation Scope
 
