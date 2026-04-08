@@ -171,6 +171,14 @@ func TestListBootstrapEntities(t *testing.T) {
 		t.Fatalf("len(subscriptions) = %d, want %d", len(subscriptions), 1)
 	}
 
+	tenants, err := store.ListTenants()
+	if err != nil {
+		t.Fatalf("ListTenants() error = %v", err)
+	}
+	if len(tenants) != 1 {
+		t.Fatalf("len(tenants) = %d, want %d", len(tenants), 1)
+	}
+
 	providers, err := store.ListProviders()
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)

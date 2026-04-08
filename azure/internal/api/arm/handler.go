@@ -22,6 +22,7 @@ func NewHandler(store *state.Store, cfg config.Config) *Handler {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /tenants", h.listTenants)
 	mux.HandleFunc("GET /subscriptions", h.listSubscriptions)
 	mux.HandleFunc("GET /providers", h.listProviders)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/providers", h.listProviders)
@@ -39,6 +40,24 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments", h.listDeployments)
 	mux.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.putDeployment)
 	mux.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Resources/deployments/{deploymentName}", h.getDeployment)
+}
+
+func (h *Handler) listTenants(w http.ResponseWriter, r *http.Request) {
+	tenants, err := h.store.ListTenants()
+	if err != nil {
+		httpx.WriteCloudError(w, http.StatusInternalServerError, "InternalServerError", err.Error())
+		return
+	}
+
+	value := make([]map[string]any, 0, len(tenants))
+	for _, tenant := range tenants {
+		value = append(value, map[string]any{
+			"id":       fmt.Sprintf("/tenants/%s", tenant.ID),
+			"tenantId": tenant.ID,
+		})
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"value": value})
 }
 
 func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {

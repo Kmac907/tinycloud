@@ -46,6 +46,43 @@ func TestListSubscriptionsReturnsBootstrapRecord(t *testing.T) {
 	}
 }
 
+func TestListTenantsReturnsBootstrapRecord(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(store, config.FromEnv()).Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants?api-version=2024-01-01", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Value []map[string]any `json:"value"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(body.Value) != 1 {
+		t.Fatalf("len(value) = %d, want %d", len(body.Value), 1)
+	}
+	if body.Value[0]["id"] == "" || body.Value[0]["tenantId"] == "" {
+		t.Fatalf("tenant response = %#v, want non-empty id and tenantId", body.Value[0])
+	}
+}
+
 func TestListProvidersReturnsBootstrapProvider(t *testing.T) {
 	t.Parallel()
 

@@ -313,6 +313,40 @@ func (s *Store) ListSubscriptions() ([]Subscription, error) {
 	return subscriptions, nil
 }
 
+func (s *Store) ListTenants() ([]Tenant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`SELECT id FROM tenants ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list tenants: %w", err)
+	}
+	defer rows.Close()
+
+	var tenants []Tenant
+	for rows.Next() {
+		var tenant Tenant
+		if err := rows.Scan(&tenant.ID); err != nil {
+			return nil, fmt.Errorf("scan tenant: %w", err)
+		}
+		tenants = append(tenants, tenant)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tenants: %w", err)
+	}
+	return tenants, nil
+}
+
 func (s *Store) ListProviders() ([]Provider, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
