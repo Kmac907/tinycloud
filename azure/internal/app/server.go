@@ -16,6 +16,7 @@ import (
 	"tinycloud/internal/providers/keyvault"
 	"tinycloud/internal/providers/queue"
 	"tinycloud/internal/providers/storage"
+	"tinycloud/internal/providers/table"
 	"tinycloud/internal/state"
 	"tinycloud/internal/telemetry"
 )
@@ -84,6 +85,14 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	tableMux := http.NewServeMux()
+	table.NewHandler(s.store, s.cfg).Register(tableMux)
+	tableServer := &http.Server{
+		Addr:              s.cfg.ListenHost + ":" + s.cfg.Table,
+		Handler:           chain(tableMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	keyVaultMux := http.NewServeMux()
 	keyvault.NewHandler(s.store, s.cfg).Register(keyVaultMux)
 	keyVaultServer := &http.Server{
@@ -96,11 +105,12 @@ func (s *Server) Run(ctx context.Context) error {
 		"addr":         s.cfg.ManagementAddr(),
 		"blobAddr":     s.cfg.ListenHost + ":" + s.cfg.Blob,
 		"queueAddr":    s.cfg.ListenHost + ":" + s.cfg.Queue,
+		"tableAddr":    s.cfg.ListenHost + ":" + s.cfg.Table,
 		"keyVaultAddr": s.cfg.ListenHost + ":" + s.cfg.KeyVault,
 		"dataRoot":     s.cfg.DataRoot,
 	})
 
-	errCh := make(chan error, 4)
+	errCh := make(chan error, 5)
 	go func() {
 		errCh <- server.ListenAndServe()
 	}()
@@ -109,6 +119,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	go func() {
 		errCh <- queueServer.ListenAndServe()
+	}()
+	go func() {
+		errCh <- tableServer.ListenAndServe()
 	}()
 	go func() {
 		errCh <- keyVaultServer.ListenAndServe()
@@ -125,6 +138,9 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := queueServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+		if err := tableServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 		if err := blobServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -134,6 +150,7 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = keyVaultServer.Shutdown(shutdownCtx)
 		_ = queueServer.Shutdown(shutdownCtx)
+		_ = tableServer.Shutdown(shutdownCtx)
 		_ = blobServer.Shutdown(shutdownCtx)
 		_ = server.Shutdown(shutdownCtx)
 		if errors.Is(err, http.ErrServerClosed) {
