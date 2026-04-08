@@ -30,6 +30,9 @@ type Document struct {
 	QueueMessages   []QueueMessage           `json:"queueMessages,omitempty"`
 	Tables          []StorageTable           `json:"tables,omitempty"`
 	TableEntities   []TableEntity            `json:"tableEntities,omitempty"`
+	ServiceBusNamespaces []ServiceBusNamespace `json:"serviceBusNamespaces,omitempty"`
+	ServiceBusQueues []ServiceBusQueue `json:"serviceBusQueues,omitempty"`
+	ServiceBusMessages []ServiceBusMessage `json:"serviceBusMessages,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
 	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
 	KeyVaultSecrets []KeyVaultSecret         `json:"keyVaultSecrets,omitempty"`
@@ -127,6 +130,31 @@ type TableEntity struct {
 	Properties    map[string]any `json:"properties"`
 	CreatedAt     string         `json:"createdAt"`
 	UpdatedAt     string         `json:"updatedAt"`
+}
+
+type ServiceBusNamespace struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type ServiceBusQueue struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type ServiceBusMessage struct {
+	Namespace     string `json:"namespace"`
+	QueueName     string `json:"queueName"`
+	ID            string `json:"id"`
+	Body          string `json:"body"`
+	LockToken     string `json:"lockToken"`
+	DeliveryCount int    `json:"deliveryCount"`
+	VisibleAt     string `json:"visibleAt"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -335,6 +363,15 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.TableEntities == nil {
 		doc.TableEntities = []TableEntity{}
+	}
+	if doc.ServiceBusNamespaces == nil {
+		doc.ServiceBusNamespaces = []ServiceBusNamespace{}
+	}
+	if doc.ServiceBusQueues == nil {
+		doc.ServiceBusQueues = []ServiceBusQueue{}
+	}
+	if doc.ServiceBusMessages == nil {
+		doc.ServiceBusMessages = []ServiceBusMessage{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -1552,6 +1589,344 @@ WHERE account_name = ? AND table_name = ? AND partition_key = ? AND row_key = ?`
 	return nil
 }
 
+func (s *Store) CreateServiceBusNamespace(name string) (ServiceBusNamespace, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusNamespace{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusNamespace{}, false, err
+	}
+
+	var existing ServiceBusNamespace
+	err = db.QueryRow(`
+SELECT name, created_at, updated_at
+FROM service_bus_namespaces
+WHERE name = ?`, name).Scan(&existing.Name, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ServiceBusNamespace{}, false, fmt.Errorf("read service bus namespace: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO service_bus_namespaces (name, created_at, updated_at)
+VALUES (?, ?, ?)`, name, nowValue, nowValue); err != nil {
+		return ServiceBusNamespace{}, false, fmt.Errorf("create service bus namespace: %w", err)
+	}
+
+	return ServiceBusNamespace{Name: name, CreatedAt: nowValue, UpdatedAt: nowValue}, true, nil
+}
+
+func (s *Store) ListServiceBusNamespaces() ([]ServiceBusNamespace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM service_bus_namespaces
+ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list service bus namespaces: %w", err)
+	}
+	defer rows.Close()
+
+	var namespaces []ServiceBusNamespace
+	for rows.Next() {
+		var namespace ServiceBusNamespace
+		if err := rows.Scan(&namespace.Name, &namespace.CreatedAt, &namespace.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan service bus namespace: %w", err)
+		}
+		namespaces = append(namespaces, namespace)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus namespaces: %w", err)
+	}
+	return namespaces, nil
+}
+
+func (s *Store) CreateServiceBusQueue(namespaceName, queueName string) (ServiceBusQueue, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusQueue{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusQueue{}, false, err
+	}
+
+	var namespaceExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_namespaces WHERE name = ?
+)`, namespaceName).Scan(&namespaceExists); err != nil {
+		return ServiceBusQueue{}, false, fmt.Errorf("query service bus namespace: %w", err)
+	}
+	if !namespaceExists {
+		return ServiceBusQueue{}, false, sql.ErrNoRows
+	}
+
+	var existing ServiceBusQueue
+	err = db.QueryRow(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_queues
+WHERE namespace_name = ? AND name = ?`, namespaceName, queueName).Scan(
+		&existing.Namespace,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ServiceBusQueue{}, false, fmt.Errorf("read service bus queue: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO service_bus_queues (namespace_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, namespaceName, queueName, nowValue, nowValue); err != nil {
+		return ServiceBusQueue{}, false, fmt.Errorf("create service bus queue: %w", err)
+	}
+
+	return ServiceBusQueue{
+		Namespace: namespaceName,
+		Name:      queueName,
+		CreatedAt: nowValue,
+		UpdatedAt: nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListServiceBusQueues(namespaceName string) ([]ServiceBusQueue, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_queues
+WHERE namespace_name = ?
+ORDER BY name`, namespaceName)
+	if err != nil {
+		return nil, fmt.Errorf("list service bus queues: %w", err)
+	}
+	defer rows.Close()
+
+	var queues []ServiceBusQueue
+	for rows.Next() {
+		var queue ServiceBusQueue
+		if err := rows.Scan(&queue.Namespace, &queue.Name, &queue.CreatedAt, &queue.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan service bus queue: %w", err)
+		}
+		queues = append(queues, queue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus queues: %w", err)
+	}
+	return queues, nil
+}
+
+func (s *Store) SendServiceBusMessage(namespaceName, queueName, body string) (ServiceBusMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return ServiceBusMessage{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return ServiceBusMessage{}, err
+	}
+
+	var queueExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_queues WHERE namespace_name = ? AND name = ?
+)`, namespaceName, queueName).Scan(&queueExists); err != nil {
+		return ServiceBusMessage{}, fmt.Errorf("query service bus queue: %w", err)
+	}
+	if !queueExists {
+		return ServiceBusMessage{}, sql.ErrNoRows
+	}
+
+	nowValue := now()
+	id := fmt.Sprintf("sbmsg-%d", time.Now().UTC().UnixNano())
+	lockToken := fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano())
+	if _, err := db.Exec(`
+INSERT INTO service_bus_messages (
+    namespace_name, queue_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		namespaceName, queueName, id, body, lockToken, 0, nowValue, nowValue, nowValue,
+	); err != nil {
+		return ServiceBusMessage{}, fmt.Errorf("send service bus message: %w", err)
+	}
+
+	return ServiceBusMessage{
+		Namespace:     namespaceName,
+		QueueName:     queueName,
+		ID:            id,
+		Body:          body,
+		LockToken:     lockToken,
+		DeliveryCount: 0,
+		VisibleAt:     nowValue,
+		CreatedAt:     nowValue,
+		UpdatedAt:     nowValue,
+	}, nil
+}
+
+func (s *Store) ReceiveServiceBusMessages(namespaceName, queueName string, maxMessages int, visibilityTimeout time.Duration) ([]ServiceBusMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+	if maxMessages <= 0 {
+		maxMessages = 1
+	}
+
+	var queueExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM service_bus_queues WHERE namespace_name = ? AND name = ?
+)`, namespaceName, queueName).Scan(&queueExists); err != nil {
+		return nil, fmt.Errorf("query service bus queue: %w", err)
+	}
+	if !queueExists {
+		return nil, sql.ErrNoRows
+	}
+
+	nowValue := time.Now().UTC()
+	rows, err := db.Query(`
+SELECT namespace_name, queue_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+FROM service_bus_messages
+WHERE namespace_name = ? AND queue_name = ? AND visible_at <= ?
+ORDER BY created_at
+LIMIT ?`, namespaceName, queueName, nowValue.Format(time.RFC3339Nano), maxMessages)
+	if err != nil {
+		return nil, fmt.Errorf("receive service bus messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []ServiceBusMessage
+	for rows.Next() {
+		var message ServiceBusMessage
+		if err := rows.Scan(
+			&message.Namespace,
+			&message.QueueName,
+			&message.ID,
+			&message.Body,
+			&message.LockToken,
+			&message.DeliveryCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan service bus message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service bus messages: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close service bus messages rows: %w", err)
+	}
+
+	for i := range messages {
+		messages[i].DeliveryCount++
+		messages[i].LockToken = fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano())
+		messages[i].VisibleAt = nowValue.Add(visibilityTimeout).Format(time.RFC3339Nano)
+		messages[i].UpdatedAt = nowValue.Format(time.RFC3339Nano)
+		if _, err := db.Exec(`
+UPDATE service_bus_messages
+SET lock_token = ?, delivery_count = ?, visible_at = ?, updated_at = ?
+WHERE namespace_name = ? AND queue_name = ? AND id = ?`,
+			messages[i].LockToken,
+			messages[i].DeliveryCount,
+			messages[i].VisibleAt,
+			messages[i].UpdatedAt,
+			messages[i].Namespace,
+			messages[i].QueueName,
+			messages[i].ID,
+		); err != nil {
+			return nil, fmt.Errorf("update service bus message visibility: %w", err)
+		}
+	}
+	return messages, nil
+}
+
+func (s *Store) DeleteServiceBusMessage(namespaceName, queueName, messageID, lockToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM service_bus_messages
+WHERE namespace_name = ? AND queue_name = ? AND id = ? AND lock_token = ?`,
+		namespaceName, queueName, messageID, lockToken,
+	)
+	if err != nil {
+		return fmt.Errorf("delete service bus message: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete service bus message rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2251,6 +2626,30 @@ CREATE TABLE IF NOT EXISTS table_entities (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, table_name, partition_key, row_key)
 );
+CREATE TABLE IF NOT EXISTS service_bus_namespaces (
+    name TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS service_bus_queues (
+    namespace_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, name)
+);
+CREATE TABLE IF NOT EXISTS service_bus_messages (
+    namespace_name TEXT NOT NULL,
+    queue_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    lock_token TEXT NOT NULL,
+    delivery_count INTEGER NOT NULL,
+    visible_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace_name, queue_name, id)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -2527,6 +2926,76 @@ ORDER BY account_name, table_name, partition_key, row_key`)
 		return Document{}, fmt.Errorf("iterate table entities: %w", err)
 	}
 
+	serviceBusNamespaceRows, err := db.Query(`
+SELECT name, created_at, updated_at
+FROM service_bus_namespaces
+ORDER BY name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus namespaces: %w", err)
+	}
+	defer serviceBusNamespaceRows.Close()
+
+	for serviceBusNamespaceRows.Next() {
+		var namespace ServiceBusNamespace
+		if err := serviceBusNamespaceRows.Scan(&namespace.Name, &namespace.CreatedAt, &namespace.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan service bus namespace: %w", err)
+		}
+		doc.ServiceBusNamespaces = append(doc.ServiceBusNamespaces, namespace)
+	}
+	if err := serviceBusNamespaceRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus namespaces: %w", err)
+	}
+
+	serviceBusQueueRows, err := db.Query(`
+SELECT namespace_name, name, created_at, updated_at
+FROM service_bus_queues
+ORDER BY namespace_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus queues: %w", err)
+	}
+	defer serviceBusQueueRows.Close()
+
+	for serviceBusQueueRows.Next() {
+		var queue ServiceBusQueue
+		if err := serviceBusQueueRows.Scan(&queue.Namespace, &queue.Name, &queue.CreatedAt, &queue.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan service bus queue: %w", err)
+		}
+		doc.ServiceBusQueues = append(doc.ServiceBusQueues, queue)
+	}
+	if err := serviceBusQueueRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus queues: %w", err)
+	}
+
+	serviceBusMessageRows, err := db.Query(`
+SELECT namespace_name, queue_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at
+FROM service_bus_messages
+ORDER BY namespace_name, queue_name, created_at`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read service bus messages: %w", err)
+	}
+	defer serviceBusMessageRows.Close()
+
+	for serviceBusMessageRows.Next() {
+		var message ServiceBusMessage
+		if err := serviceBusMessageRows.Scan(
+			&message.Namespace,
+			&message.QueueName,
+			&message.ID,
+			&message.Body,
+			&message.LockToken,
+			&message.DeliveryCount,
+			&message.VisibleAt,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return Document{}, fmt.Errorf("scan service bus message: %w", err)
+		}
+		doc.ServiceBusMessages = append(doc.ServiceBusMessages, message)
+	}
+	if err := serviceBusMessageRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate service bus messages: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -2671,6 +3140,15 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.TableEntities == nil {
 		doc.TableEntities = []TableEntity{}
 	}
+	if doc.ServiceBusNamespaces == nil {
+		doc.ServiceBusNamespaces = []ServiceBusNamespace{}
+	}
+	if doc.ServiceBusQueues == nil {
+		doc.ServiceBusQueues = []ServiceBusQueue{}
+	}
+	if doc.ServiceBusMessages == nil {
+		doc.ServiceBusMessages = []ServiceBusMessage{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -2708,6 +3186,18 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM table_entities`); err != nil {
 		err = fmt.Errorf("clear table entities: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_messages`); err != nil {
+		err = fmt.Errorf("clear service bus messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_queues`); err != nil {
+		err = fmt.Errorf("clear service bus queues: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM service_bus_namespaces`); err != nil {
+		err = fmt.Errorf("clear service bus namespaces: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_tables`); err != nil {
@@ -2927,6 +3417,70 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			return err
 		}
 	}
+	for _, namespace := range doc.ServiceBusNamespaces {
+		if namespace.CreatedAt == "" {
+			namespace.CreatedAt = doc.UpdatedAt
+		}
+		if namespace.UpdatedAt == "" {
+			namespace.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_namespaces (name, created_at, updated_at) VALUES (?, ?, ?)`,
+			namespace.Name,
+			namespace.CreatedAt,
+			namespace.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus namespace: %w", err)
+			return err
+		}
+	}
+	for _, queue := range doc.ServiceBusQueues {
+		if queue.CreatedAt == "" {
+			queue.CreatedAt = doc.UpdatedAt
+		}
+		if queue.UpdatedAt == "" {
+			queue.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_queues (namespace_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			queue.Namespace,
+			queue.Name,
+			queue.CreatedAt,
+			queue.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus queue: %w", err)
+			return err
+		}
+	}
+	for _, message := range doc.ServiceBusMessages {
+		if message.LockToken == "" {
+			message.LockToken = fmt.Sprintf("sblock-%d", time.Now().UTC().UnixNano())
+		}
+		if message.VisibleAt == "" {
+			message.VisibleAt = doc.UpdatedAt
+		}
+		if message.CreatedAt == "" {
+			message.CreatedAt = doc.UpdatedAt
+		}
+		if message.UpdatedAt == "" {
+			message.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO service_bus_messages (namespace_name, queue_name, id, body, lock_token, delivery_count, visible_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			message.Namespace,
+			message.QueueName,
+			message.ID,
+			message.Body,
+			message.LockToken,
+			message.DeliveryCount,
+			message.VisibleAt,
+			message.CreatedAt,
+			message.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert service bus message: %w", err)
+			return err
+		}
+	}
 	for _, account := range doc.StorageAccounts {
 		if account.Kind == "" {
 			account.Kind = "StorageV2"
@@ -3106,6 +3660,9 @@ func newDocument() Document {
 		QueueMessages:   []QueueMessage{},
 		Tables:          []StorageTable{},
 		TableEntities:   []TableEntity{},
+		ServiceBusNamespaces: []ServiceBusNamespace{},
+		ServiceBusQueues: []ServiceBusQueue{},
+		ServiceBusMessages: []ServiceBusMessage{},
 		StorageAccounts: []StorageAccount{},
 		KeyVaults:       []KeyVault{},
 		KeyVaultSecrets: []KeyVaultSecret{},

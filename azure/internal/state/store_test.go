@@ -610,6 +610,91 @@ func TestTableStorageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestServiceBusQueueRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	namespace, created, err := store.CreateServiceBusNamespace("local-messaging")
+	if err != nil {
+		t.Fatalf("CreateServiceBusNamespace() error = %v", err)
+	}
+	if !created {
+		t.Fatal("CreateServiceBusNamespace() created = false, want true")
+	}
+	if namespace.Name != "local-messaging" {
+		t.Fatalf("Name = %q, want %q", namespace.Name, "local-messaging")
+	}
+
+	namespaces, err := store.ListServiceBusNamespaces()
+	if err != nil {
+		t.Fatalf("ListServiceBusNamespaces() error = %v", err)
+	}
+	if len(namespaces) != 1 {
+		t.Fatalf("len(namespaces) = %d, want %d", len(namespaces), 1)
+	}
+
+	queue, created, err := store.CreateServiceBusQueue("local-messaging", "jobs")
+	if err != nil {
+		t.Fatalf("CreateServiceBusQueue() error = %v", err)
+	}
+	if !created {
+		t.Fatal("CreateServiceBusQueue() created = false, want true")
+	}
+	if queue.Name != "jobs" {
+		t.Fatalf("Name = %q, want %q", queue.Name, "jobs")
+	}
+
+	queues, err := store.ListServiceBusQueues("local-messaging")
+	if err != nil {
+		t.Fatalf("ListServiceBusQueues() error = %v", err)
+	}
+	if len(queues) != 1 {
+		t.Fatalf("len(queues) = %d, want %d", len(queues), 1)
+	}
+
+	message, err := store.SendServiceBusMessage("local-messaging", "jobs", `{"job":"sync"}`)
+	if err != nil {
+		t.Fatalf("SendServiceBusMessage() error = %v", err)
+	}
+	if message.ID == "" {
+		t.Fatal("message ID is empty")
+	}
+
+	messages, err := store.ReceiveServiceBusMessages("local-messaging", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].Body != `{"job":"sync"}` {
+		t.Fatalf("Body = %q, want %q", messages[0].Body, `{"job":"sync"}`)
+	}
+	if messages[0].DeliveryCount != 1 {
+		t.Fatalf("DeliveryCount = %d, want %d", messages[0].DeliveryCount, 1)
+	}
+
+	if err := store.DeleteServiceBusMessage("local-messaging", "jobs", messages[0].ID, messages[0].LockToken); err != nil {
+		t.Fatalf("DeleteServiceBusMessage() error = %v", err)
+	}
+
+	messages, err = store.ReceiveServiceBusMessages("local-messaging", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusMessages() after delete error = %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("len(messages) after delete = %d, want %d", len(messages), 0)
+	}
+}
+
 func TestSnapshotAndRestorePreserveQueueState(t *testing.T) {
 	t.Parallel()
 
@@ -714,6 +799,61 @@ func TestSnapshotAndRestorePreserveTableState(t *testing.T) {
 	}
 	if entity.Properties["Name"] != "Tiny Cloud" {
 		t.Fatalf("Name = %v, want %q", entity.Properties["Name"], "Tiny Cloud")
+	}
+}
+
+func TestSnapshotAndRestorePreserveServiceBusState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusNamespace("local-messaging"); err != nil {
+		t.Fatalf("CreateServiceBusNamespace() error = %v", err)
+	}
+	if _, _, err := store.CreateServiceBusQueue("local-messaging", "jobs"); err != nil {
+		t.Fatalf("CreateServiceBusQueue() error = %v", err)
+	}
+	if _, err := store.SendServiceBusMessage("local-messaging", "jobs", `{"job":"sync"}`); err != nil {
+		t.Fatalf("SendServiceBusMessage() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "servicebus.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	namespaces, err := restoreStore.ListServiceBusNamespaces()
+	if err != nil {
+		t.Fatalf("ListServiceBusNamespaces() error = %v", err)
+	}
+	if len(namespaces) != 1 {
+		t.Fatalf("len(namespaces) = %d, want %d", len(namespaces), 1)
+	}
+
+	messages, err := restoreStore.ReceiveServiceBusMessages("local-messaging", "jobs", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ReceiveServiceBusMessages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want %d", len(messages), 1)
+	}
+	if messages[0].Body != `{"job":"sync"}` {
+		t.Fatalf("Body = %q, want %q", messages[0].Body, `{"job":"sync"}`)
 	}
 }
 
