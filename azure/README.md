@@ -19,6 +19,12 @@ TinyCloud is designed for targeted local Azure workflow testing, not full Azure 
 
 ## Current Emulation Scope
 
+Current status across the listed emulator areas:
+
+- `8` implemented
+- `1` partial
+- `3` not implemented yet
+
 ### Support Levels
 
 | Area | Current level | Notes |
@@ -333,20 +339,21 @@ docker run --rm `
 
 ## How TinyCloud Compares
 
-This is the practical comparison for current use, not a marketing claim.
+This is the practical comparison for current use, not a marketing claim. The point here is where TinyCloud fits in the broader local cloud-emulator landscape.
 
-| Tool | Primary scope | Multi-service Azure ARM | Blob | Queue/Table | Key Vault secrets | Service Bus | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| TinyCloud | focused Azure emulator | Yes | Yes | No | No | No | best when you need ARM + Blob together in one local process |
-| Azurite | Azure Storage emulator | No | Yes | Yes | No | No | Microsoft storage-only emulator |
-| LocalStack | AWS emulator | No | N/A | N/A | N/A | N/A | AWS-focused, not Azure-focused |
-| MiniStack | AWS emulator | No | N/A | N/A | N/A | N/A | AWS-focused, not Azure-focused |
+| Tool | Cloud focus | Product shape | Strength | Tradeoff | Best fit |
+| --- | --- | --- | --- | --- | --- |
+| TinyCloud | Azure | focused local cloud emulator | combines ARM-style control plane, identity metadata, and real Blob behavior in one small runtime | Azure coverage is still intentionally narrow | testing Azure workflows that need ARM plus at least one real data-plane service |
+| Azurite | Azure Storage | storage emulator | mature Blob/Queue/Table emulation from Microsoft | no ARM, no identity, no broader Azure control plane | storage-only local development |
+| LocalStack | AWS | broad local cloud platform | large AWS surface area and established local-cloud workflow patterns | AWS-focused rather than Azure-focused | teams standardizing on AWS local emulation |
+| MiniStack | AWS | lightweight local cloud platform | fast, small-footprint AWS emulator with broad service ambitions | AWS-focused rather than Azure-focused | developers who want a lighter AWS local-cloud setup |
 
 ### Interpretation
 
-- If you only need Azure Storage, Azurite is broader today because it covers Blob, Queue, and Table.
-- If you need Azure-style ARM resources plus Blob in one local environment, TinyCloud covers that combination and Azurite does not.
-- LocalStack and MiniStack are useful comparisons for local-cloud workflow philosophy, but they target AWS rather than Azure.
+- TinyCloud is closer in spirit to LocalStack and MiniStack than to Azurite: it aims to emulate a cloud environment, not just a single storage service.
+- Azurite is the better choice when you only need Azure Storage and want broader storage coverage today.
+- TinyCloud is the better fit when you need Azure-style resource provisioning, metadata/identity endpoints, and Blob behavior together in one local runtime.
+- LocalStack and MiniStack are relevant peers because they define the broader local-cloud developer experience category, even though they target AWS instead of Azure.
 
 ## Current Limitations
 
