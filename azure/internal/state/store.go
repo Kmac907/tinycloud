@@ -28,6 +28,8 @@ type Document struct {
 	Blobs           []BlobObject             `json:"blobs,omitempty"`
 	Queues          []StorageQueue           `json:"queues,omitempty"`
 	QueueMessages   []QueueMessage           `json:"queueMessages,omitempty"`
+	Tables          []StorageTable           `json:"tables,omitempty"`
+	TableEntities   []TableEntity            `json:"tableEntities,omitempty"`
 	StorageAccounts []StorageAccount         `json:"storageAccounts,omitempty"`
 	KeyVaults       []KeyVault               `json:"keyVaults,omitempty"`
 	KeyVaultSecrets []KeyVaultSecret         `json:"keyVaultSecrets,omitempty"`
@@ -108,6 +110,23 @@ type QueueMessage struct {
 	VisibleAt     string `json:"visibleAt"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
+}
+
+type StorageTable struct {
+	AccountName string `json:"accountName"`
+	Name        string `json:"name"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type TableEntity struct {
+	AccountName   string         `json:"accountName"`
+	TableName     string         `json:"tableName"`
+	PartitionKey  string         `json:"partitionKey"`
+	RowKey        string         `json:"rowKey"`
+	Properties    map[string]any `json:"properties"`
+	CreatedAt     string         `json:"createdAt"`
+	UpdatedAt     string         `json:"updatedAt"`
 }
 
 type StorageAccount struct {
@@ -310,6 +329,12 @@ func (s *Store) Restore(path string) error {
 	}
 	if doc.QueueMessages == nil {
 		doc.QueueMessages = []QueueMessage{}
+	}
+	if doc.Tables == nil {
+		doc.Tables = []StorageTable{}
+	}
+	if doc.TableEntities == nil {
+		doc.TableEntities = []TableEntity{}
 	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
@@ -1240,6 +1265,293 @@ WHERE account_name = ? AND queue_name = ? AND id = ? AND pop_receipt = ?`,
 	return nil
 }
 
+func (s *Store) CreateTable(accountName, name string) (StorageTable, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return StorageTable{}, false, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return StorageTable{}, false, err
+	}
+
+	var accountExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM storage_accounts WHERE name = ?
+)`, accountName).Scan(&accountExists); err != nil {
+		return StorageTable{}, false, fmt.Errorf("query storage account: %w", err)
+	}
+	if !accountExists {
+		return StorageTable{}, false, sql.ErrNoRows
+	}
+
+	var existing StorageTable
+	err = db.QueryRow(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_tables
+WHERE account_name = ? AND name = ?`, accountName, name).Scan(
+		&existing.AccountName,
+		&existing.Name,
+		&existing.CreatedAt,
+		&existing.UpdatedAt,
+	)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return StorageTable{}, false, fmt.Errorf("read storage table: %w", err)
+	}
+
+	nowValue := now()
+	if _, err := db.Exec(`
+INSERT INTO storage_tables (account_name, name, created_at, updated_at)
+VALUES (?, ?, ?, ?)`, accountName, name, nowValue, nowValue); err != nil {
+		return StorageTable{}, false, fmt.Errorf("create storage table: %w", err)
+	}
+
+	return StorageTable{
+		AccountName: accountName,
+		Name:        name,
+		CreatedAt:   nowValue,
+		UpdatedAt:   nowValue,
+	}, true, nil
+}
+
+func (s *Store) ListTables(accountName string) ([]StorageTable, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_tables
+WHERE account_name = ?
+ORDER BY name`, accountName)
+	if err != nil {
+		return nil, fmt.Errorf("list storage tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []StorageTable
+	for rows.Next() {
+		var table StorageTable
+		if err := rows.Scan(&table.AccountName, &table.Name, &table.CreatedAt, &table.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan storage table: %w", err)
+		}
+		tables = append(tables, table)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate storage tables: %w", err)
+	}
+	return tables, nil
+}
+
+func (s *Store) DeleteTable(accountName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM storage_tables
+WHERE account_name = ? AND name = ?`, accountName, name)
+	if err != nil {
+		return fmt.Errorf("delete storage table: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete storage table rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := db.Exec(`
+DELETE FROM table_entities
+WHERE account_name = ? AND table_name = ?`, accountName, name); err != nil {
+		return fmt.Errorf("delete table entities: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpsertTableEntity(accountName, tableName, partitionKey, rowKey string, properties map[string]any) (TableEntity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return TableEntity{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return TableEntity{}, err
+	}
+
+	var tableExists bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+    SELECT 1 FROM storage_tables WHERE account_name = ? AND name = ?
+)`, accountName, tableName).Scan(&tableExists); err != nil {
+		return TableEntity{}, fmt.Errorf("query storage table: %w", err)
+	}
+	if !tableExists {
+		return TableEntity{}, sql.ErrNoRows
+	}
+	if properties == nil {
+		properties = map[string]any{}
+	}
+
+	nowValue := now()
+	var createdAt string
+	err = db.QueryRow(`
+SELECT created_at
+FROM table_entities
+WHERE account_name = ? AND table_name = ? AND partition_key = ? AND row_key = ?`,
+		accountName, tableName, partitionKey, rowKey,
+	).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		createdAt = nowValue
+	} else if err != nil {
+		return TableEntity{}, fmt.Errorf("read table entity timestamps: %w", err)
+	}
+
+	propertiesJSON, err := json.Marshal(properties)
+	if err != nil {
+		return TableEntity{}, fmt.Errorf("marshal table entity properties: %w", err)
+	}
+
+	if _, err := db.Exec(`
+INSERT INTO table_entities (
+    account_name, table_name, partition_key, row_key, properties_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_name, table_name, partition_key, row_key) DO UPDATE SET
+    properties_json = excluded.properties_json,
+    updated_at = excluded.updated_at`,
+		accountName, tableName, partitionKey, rowKey, string(propertiesJSON), createdAt, nowValue,
+	); err != nil {
+		return TableEntity{}, fmt.Errorf("upsert table entity: %w", err)
+	}
+
+	return TableEntity{
+		AccountName:  accountName,
+		TableName:    tableName,
+		PartitionKey: partitionKey,
+		RowKey:       rowKey,
+		Properties:   properties,
+		CreatedAt:    createdAt,
+		UpdatedAt:    nowValue,
+	}, nil
+}
+
+func (s *Store) GetTableEntity(accountName, tableName, partitionKey, rowKey string) (TableEntity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return TableEntity{}, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return TableEntity{}, err
+	}
+
+	return s.getTableEntityLocked(db, accountName, tableName, partitionKey, rowKey)
+}
+
+func (s *Store) ListTableEntities(accountName, tableName string) ([]TableEntity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(`
+SELECT account_name, table_name, partition_key, row_key, properties_json, created_at, updated_at
+FROM table_entities
+WHERE account_name = ? AND table_name = ?
+ORDER BY partition_key, row_key`, accountName, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("list table entities: %w", err)
+	}
+	defer rows.Close()
+
+	var entities []TableEntity
+	for rows.Next() {
+		entity, err := scanTableEntity(rows)
+		if err != nil {
+			return nil, err
+		}
+		entities = append(entities, entity)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate table entities: %w", err)
+	}
+	return entities, nil
+}
+
+func (s *Store) DeleteTableEntity(accountName, tableName, partitionKey, rowKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db, err := s.openLocked()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := s.ensureDocumentLocked(db); err != nil {
+		return err
+	}
+
+	result, err := db.Exec(`
+DELETE FROM table_entities
+WHERE account_name = ? AND table_name = ? AND partition_key = ? AND row_key = ?`,
+		accountName, tableName, partitionKey, rowKey,
+	)
+	if err != nil {
+		return fmt.Errorf("delete table entity: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete table entity rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpsertStorageAccount(subscriptionID, resourceGroupName, name, location, kind, skuName string, tags map[string]string) (StorageAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1922,6 +2234,23 @@ CREATE TABLE IF NOT EXISTS queue_messages (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (account_name, queue_name, id)
 );
+CREATE TABLE IF NOT EXISTS storage_tables (
+    account_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, name)
+);
+CREATE TABLE IF NOT EXISTS table_entities (
+    account_name TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    row_key TEXT NOT NULL,
+    properties_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (account_name, table_name, partition_key, row_key)
+);
 CREATE TABLE IF NOT EXISTS storage_accounts (
     id TEXT PRIMARY KEY,
     subscription_id TEXT NOT NULL,
@@ -2158,6 +2487,46 @@ ORDER BY account_name, queue_name, created_at`)
 		return Document{}, fmt.Errorf("iterate queue messages: %w", err)
 	}
 
+	tableRows, err := db.Query(`
+SELECT account_name, name, created_at, updated_at
+FROM storage_tables
+ORDER BY account_name, name`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read storage tables: %w", err)
+	}
+	defer tableRows.Close()
+
+	for tableRows.Next() {
+		var table StorageTable
+		if err := tableRows.Scan(&table.AccountName, &table.Name, &table.CreatedAt, &table.UpdatedAt); err != nil {
+			return Document{}, fmt.Errorf("scan storage table: %w", err)
+		}
+		doc.Tables = append(doc.Tables, table)
+	}
+	if err := tableRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate storage tables: %w", err)
+	}
+
+	tableEntityRows, err := db.Query(`
+SELECT account_name, table_name, partition_key, row_key, properties_json, created_at, updated_at
+FROM table_entities
+ORDER BY account_name, table_name, partition_key, row_key`)
+	if err != nil {
+		return Document{}, fmt.Errorf("read table entities: %w", err)
+	}
+	defer tableEntityRows.Close()
+
+	for tableEntityRows.Next() {
+		entity, err := scanTableEntity(tableEntityRows)
+		if err != nil {
+			return Document{}, err
+		}
+		doc.TableEntities = append(doc.TableEntities, entity)
+	}
+	if err := tableEntityRows.Err(); err != nil {
+		return Document{}, fmt.Errorf("iterate table entities: %w", err)
+	}
+
 	storageAccountRows, err := db.Query(`
 SELECT id, subscription_id, resource_group_name, name, location, kind, sku_name, tags_json, provisioning_state, created_at, updated_at
 FROM storage_accounts
@@ -2296,6 +2665,12 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	if doc.QueueMessages == nil {
 		doc.QueueMessages = []QueueMessage{}
 	}
+	if doc.Tables == nil {
+		doc.Tables = []StorageTable{}
+	}
+	if doc.TableEntities == nil {
+		doc.TableEntities = []TableEntity{}
+	}
 	if doc.StorageAccounts == nil {
 		doc.StorageAccounts = []StorageAccount{}
 	}
@@ -2329,6 +2704,14 @@ func (s *Store) writeLocked(db *sql.DB, doc Document) (err error) {
 	}
 	if _, err = tx.Exec(`DELETE FROM queue_messages`); err != nil {
 		err = fmt.Errorf("clear queue messages: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM table_entities`); err != nil {
+		err = fmt.Errorf("clear table entities: %w", err)
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM storage_tables`); err != nil {
+		err = fmt.Errorf("clear storage tables: %w", err)
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM storage_queues`); err != nil {
@@ -2494,6 +2877,53 @@ id, subscription_id, name, location, tags_json, managed_by, created_at, updated_
 			message.UpdatedAt,
 		); err != nil {
 			err = fmt.Errorf("insert queue message: %w", err)
+			return err
+		}
+	}
+	for _, table := range doc.Tables {
+		if table.CreatedAt == "" {
+			table.CreatedAt = doc.UpdatedAt
+		}
+		if table.UpdatedAt == "" {
+			table.UpdatedAt = doc.UpdatedAt
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO storage_tables (account_name, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			table.AccountName,
+			table.Name,
+			table.CreatedAt,
+			table.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert storage table: %w", err)
+			return err
+		}
+	}
+	for _, entity := range doc.TableEntities {
+		if entity.Properties == nil {
+			entity.Properties = map[string]any{}
+		}
+		if entity.CreatedAt == "" {
+			entity.CreatedAt = doc.UpdatedAt
+		}
+		if entity.UpdatedAt == "" {
+			entity.UpdatedAt = doc.UpdatedAt
+		}
+		propertiesJSON, marshalErr := json.Marshal(entity.Properties)
+		if marshalErr != nil {
+			err = fmt.Errorf("marshal table entity properties: %w", marshalErr)
+			return err
+		}
+		if _, err = tx.Exec(
+			`INSERT INTO table_entities (account_name, table_name, partition_key, row_key, properties_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			entity.AccountName,
+			entity.TableName,
+			entity.PartitionKey,
+			entity.RowKey,
+			string(propertiesJSON),
+			entity.CreatedAt,
+			entity.UpdatedAt,
+		); err != nil {
+			err = fmt.Errorf("insert table entity: %w", err)
 			return err
 		}
 	}
@@ -2674,6 +3104,8 @@ func newDocument() Document {
 		Blobs:           []BlobObject{},
 		Queues:          []StorageQueue{},
 		QueueMessages:   []QueueMessage{},
+		Tables:          []StorageTable{},
+		TableEntities:   []TableEntity{},
 		StorageAccounts: []StorageAccount{},
 		KeyVaults:       []KeyVault{},
 		KeyVaultSecrets: []KeyVaultSecret{},
@@ -2756,6 +3188,41 @@ func scanStorageAccount(scanner interface {
 		account.Tags = map[string]string{}
 	}
 	return account, nil
+}
+
+func (s *Store) getTableEntityLocked(db *sql.DB, accountName, tableName, partitionKey, rowKey string) (TableEntity, error) {
+	row := db.QueryRow(`
+SELECT account_name, table_name, partition_key, row_key, properties_json, created_at, updated_at
+FROM table_entities
+WHERE account_name = ? AND table_name = ? AND partition_key = ? AND row_key = ?`,
+		accountName, tableName, partitionKey, rowKey,
+	)
+	return scanTableEntity(row)
+}
+
+func scanTableEntity(scanner interface {
+	Scan(dest ...any) error
+}) (TableEntity, error) {
+	var entity TableEntity
+	var propertiesJSON string
+	if err := scanner.Scan(
+		&entity.AccountName,
+		&entity.TableName,
+		&entity.PartitionKey,
+		&entity.RowKey,
+		&propertiesJSON,
+		&entity.CreatedAt,
+		&entity.UpdatedAt,
+	); err != nil {
+		return TableEntity{}, err
+	}
+	if err := json.Unmarshal([]byte(propertiesJSON), &entity.Properties); err != nil {
+		return TableEntity{}, fmt.Errorf("parse table entity properties: %w", err)
+	}
+	if entity.Properties == nil {
+		entity.Properties = map[string]any{}
+	}
+	return entity, nil
 }
 
 func (s *Store) getKeyVaultLocked(db *sql.DB, subscriptionID, resourceGroupName, name string) (KeyVault, error) {

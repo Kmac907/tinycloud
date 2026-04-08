@@ -526,6 +526,90 @@ func TestQueueStorageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTableStorageRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertStorageAccount("sub-123", "rg-test", "storagetest", "westus2", "StorageV2", "Standard_LRS", nil); err != nil {
+		t.Fatalf("UpsertStorageAccount() error = %v", err)
+	}
+
+	table, created, err := store.CreateTable("storagetest", "customers")
+	if err != nil {
+		t.Fatalf("CreateTable() error = %v", err)
+	}
+	if !created {
+		t.Fatal("CreateTable() created = false, want true")
+	}
+	if table.Name != "customers" {
+		t.Fatalf("Name = %q, want %q", table.Name, "customers")
+	}
+
+	tables, err := store.ListTables("storagetest")
+	if err != nil {
+		t.Fatalf("ListTables() error = %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("len(tables) = %d, want %d", len(tables), 1)
+	}
+
+	entity, err := store.UpsertTableEntity("storagetest", "customers", "retail", "cust-001", map[string]any{
+		"Name":   "Tiny Cloud",
+		"Active": true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertTableEntity() error = %v", err)
+	}
+	if entity.RowKey != "cust-001" {
+		t.Fatalf("RowKey = %q, want %q", entity.RowKey, "cust-001")
+	}
+
+	got, err := store.GetTableEntity("storagetest", "customers", "retail", "cust-001")
+	if err != nil {
+		t.Fatalf("GetTableEntity() error = %v", err)
+	}
+	if got.Properties["Name"] != "Tiny Cloud" {
+		t.Fatalf("Name = %v, want %q", got.Properties["Name"], "Tiny Cloud")
+	}
+
+	entities, err := store.ListTableEntities("storagetest", "customers")
+	if err != nil {
+		t.Fatalf("ListTableEntities() error = %v", err)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("len(entities) = %d, want %d", len(entities), 1)
+	}
+
+	if err := store.DeleteTableEntity("storagetest", "customers", "retail", "cust-001"); err != nil {
+		t.Fatalf("DeleteTableEntity() error = %v", err)
+	}
+	entities, err = store.ListTableEntities("storagetest", "customers")
+	if err != nil {
+		t.Fatalf("ListTableEntities() after delete error = %v", err)
+	}
+	if len(entities) != 0 {
+		t.Fatalf("len(entities) after delete = %d, want %d", len(entities), 0)
+	}
+
+	if err := store.DeleteTable("storagetest", "customers"); err != nil {
+		t.Fatalf("DeleteTable() error = %v", err)
+	}
+	tables, err = store.ListTables("storagetest")
+	if err != nil {
+		t.Fatalf("ListTables() after delete error = %v", err)
+	}
+	if len(tables) != 0 {
+		t.Fatalf("len(tables) after delete = %d, want %d", len(tables), 0)
+	}
+}
+
 func TestSnapshotAndRestorePreserveQueueState(t *testing.T) {
 	t.Parallel()
 
@@ -578,6 +662,58 @@ func TestSnapshotAndRestorePreserveQueueState(t *testing.T) {
 	}
 	if messages[0].MessageText != "work-item-1" {
 		t.Fatalf("MessageText = %q, want %q", messages[0].MessageText, "work-item-1")
+	}
+}
+
+func TestSnapshotAndRestorePreserveTableState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := store.UpsertStorageAccount("sub-123", "rg-test", "storagetest", "westus2", "StorageV2", "Standard_LRS", nil); err != nil {
+		t.Fatalf("UpsertStorageAccount() error = %v", err)
+	}
+	if _, _, err := store.CreateTable("storagetest", "customers"); err != nil {
+		t.Fatalf("CreateTable() error = %v", err)
+	}
+	if _, err := store.UpsertTableEntity("storagetest", "customers", "retail", "cust-001", map[string]any{"Name": "Tiny Cloud"}); err != nil {
+		t.Fatalf("UpsertTableEntity() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, "tables.snapshot.json")
+	if err := store.Snapshot(snapshotPath); err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+
+	restoreRoot := t.TempDir()
+	restoreStore, err := NewStore(restoreRoot)
+	if err != nil {
+		t.Fatalf("NewStore() restore error = %v", err)
+	}
+	if err := restoreStore.Restore(snapshotPath); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+
+	tables, err := restoreStore.ListTables("storagetest")
+	if err != nil {
+		t.Fatalf("ListTables() error = %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("len(tables) = %d, want %d", len(tables), 1)
+	}
+
+	entity, err := restoreStore.GetTableEntity("storagetest", "customers", "retail", "cust-001")
+	if err != nil {
+		t.Fatalf("GetTableEntity() error = %v", err)
+	}
+	if entity.Properties["Name"] != "Tiny Cloud" {
+		t.Fatalf("Name = %v, want %q", entity.Properties["Name"], "Tiny Cloud")
 	}
 }
 
