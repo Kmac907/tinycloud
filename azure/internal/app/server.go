@@ -67,7 +67,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	blobMux := http.NewServeMux()
-	storage.NewHandler(s.store).Register(blobMux)
+	storage.NewHandler(s.store, s.cfg).Register(blobMux)
 	blobServer := &http.Server{
 		Addr:              s.cfg.ListenHost + ":" + s.cfg.Blob,
 		Handler:           chain(blobMux, withRequestID, withLogging(s.logger), withRecovery(s.logger), withCORS, withAzureHeaders),
