@@ -491,6 +491,7 @@ For the planned command-layer migration, both entrypoints also support explicit 
 
 - `TINYCLOUD_SOURCE_ROOT` points the wrapper at the TinyCloud source tree it should build and run
 - `TINYTERRAFORM_SCRIPT` points the Go launcher at a specific `tinyterraform.ps1` script path
+- `TINYTERRAFORM_SCRIPT_RELATIVE_PATH` points the Go launcher at the wrapper script relative to `TINYCLOUD_SOURCE_ROOT`, which defaults to `scripts\tinyterraform.ps1` today
 - `TINYCLOUD_MAIN_PACKAGE` points the wrapper at the TinyCloud Go package it should build, which defaults to `.\cmd\tinycloud` today
 - `TINYCLOUD_GO_WORKDIR` points the wrapper at the Go build/workspace directory it should run `go build` from
 - `TINYTERRAFORM_RUNTIME_ROOT` points the wrapper at an isolated runtime directory instead of the default `.tinyterraform-runtime`

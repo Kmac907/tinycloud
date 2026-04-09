@@ -128,6 +128,27 @@ func TestResolveTinyTerraformScriptHonorsSourceRootOverride(t *testing.T) {
 	}
 }
 
+func TestResolveTinyTerraformScriptHonorsRelativePathOverride(t *testing.T) {
+	root := t.TempDir()
+	scriptPath := filepath.Join(root, "azure", "scripts", "tinyterraform.ps1")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("Write-Host relative-path"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("TINYCLOUD_SOURCE_ROOT", root)
+	t.Setenv("TINYTERRAFORM_SCRIPT_RELATIVE_PATH", filepath.Join("azure", "scripts", "tinyterraform.ps1"))
+
+	path, err := resolveTinyTerraformScript(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveTinyTerraformScript() error = %v", err)
+	}
+	if path != scriptPath {
+		t.Fatalf("resolveTinyTerraformScript() = %q, want %q", path, scriptPath)
+	}
+}
+
 func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
 	t.Parallel()
 

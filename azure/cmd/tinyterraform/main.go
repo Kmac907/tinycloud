@@ -194,7 +194,7 @@ func resolveTinyTerraformScript(cwd string) (string, error) {
 		}
 	}
 
-	relativePath := filepath.Join("scripts", "tinyterraform.ps1")
+	relativePath := resolveTinyTerraformScriptRelativePath()
 	if sourceRoot := os.Getenv("TINYCLOUD_SOURCE_ROOT"); sourceRoot != "" {
 		candidate := filepath.Join(sourceRoot, relativePath)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
@@ -209,6 +209,14 @@ func resolveTinyTerraformScript(cwd string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not locate %s from the current workspace", relativePath)
+}
+
+func resolveTinyTerraformScriptRelativePath() string {
+	if relativePath := os.Getenv("TINYTERRAFORM_SCRIPT_RELATIVE_PATH"); relativePath != "" {
+		return filepath.Clean(relativePath)
+	}
+
+	return filepath.Join("scripts", "tinyterraform.ps1")
 }
 
 func candidateSearchRoots(cwd string) []string {
