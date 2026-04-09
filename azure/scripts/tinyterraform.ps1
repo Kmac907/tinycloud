@@ -11,6 +11,31 @@ if (-not $TerraformArgs -or $TerraformArgs.Count -eq 0) {
     throw "usage: .\scripts\tinyterraform.ps1 <terraform arguments>"
 }
 
+function Find-UpwardPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Start,
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath
+    )
+
+    $current = [System.IO.Path]::GetFullPath($Start)
+    while ($true) {
+        $candidate = Join-Path $current $RelativePath
+        if (Test-Path $candidate) {
+            return $current
+        }
+
+        $parent = Split-Path -Parent $current
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+            break
+        }
+        $current = $parent
+    }
+
+    return $null
+}
+
 function Resolve-TinyCloudSourceRoot {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_SOURCE_ROOT)) {
         $sourceRoot = (Resolve-Path -LiteralPath $env:TINYCLOUD_SOURCE_ROOT).Path
@@ -21,7 +46,12 @@ function Resolve-TinyCloudSourceRoot {
         return $sourceRoot
     }
 
-    return (Split-Path -Parent $PSScriptRoot)
+    $discovered = Find-UpwardPath -Start $PSScriptRoot -RelativePath "cmd\tinycloud\main.go"
+    if (-not [string]::IsNullOrWhiteSpace($discovered)) {
+        return $discovered
+    }
+
+    throw "could not locate a TinyCloud source tree containing cmd\tinycloud\main.go from the wrapper path"
 }
 
 function Resolve-TinyCloudMainPackage {

@@ -497,6 +497,7 @@ For the planned command-layer migration, both entrypoints also support explicit 
 - `TINYTERRAFORM_RUNTIME_ROOT` points the wrapper at an isolated runtime directory instead of the default `.tinyterraform-runtime`
 
 Those overrides let the wrapper/launcher survive an intermediate repo-layout transition before the final `tinycloud\cmd` structure is in place.
+The wrapper also now searches upward from its own location for `cmd\tinycloud\main.go`, so a script temporarily relocated under a provider path like `azure\scripts` can still find the real TinyCloud root without requiring `TINYCLOUD_SOURCE_ROOT`.
 
 Compatibility goal:
 
