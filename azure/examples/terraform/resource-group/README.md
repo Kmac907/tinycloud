@@ -34,6 +34,7 @@ For the planned top-level `tinycloud\cmd` migration, the current wrapper layer a
 - `TINYCLOUD_SOURCE_ROOT` to point the wrapper at the TinyCloud source tree it should build
 - `TINYTERRAFORM_SCRIPT` to point the Go launcher at an explicit wrapper-script path
 - `TINYCLOUD_MAIN_PACKAGE` to point the wrapper at the TinyCloud Go package it should build during the transition
+- `TINYCLOUD_GO_WORKDIR` to point the wrapper at the Go workspace/build directory to use during the transition
 - `TINYTERRAFORM_RUNTIME_ROOT` to isolate the wrapper runtime directory when you need multiple migration-style runs side by side
 
 The long-term direction is to keep this flow as close as practical to normal `terraform` and `az` usage so users can rely on familiar command-line habits inside the local emulator environment.

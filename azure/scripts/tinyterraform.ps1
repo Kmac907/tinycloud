@@ -32,6 +32,14 @@ function Resolve-TinyCloudMainPackage {
     return ".\cmd\tinycloud"
 }
 
+function Resolve-TinyCloudGoWorkdir {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_GO_WORKDIR)) {
+        return (Resolve-Path -LiteralPath $env:TINYCLOUD_GO_WORKDIR).Path
+    }
+
+    return $repoRoot
+}
+
 function Resolve-TinyTerraformRuntimeRoot {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_RUNTIME_ROOT)) {
         return $env:TINYTERRAFORM_RUNTIME_ROOT
@@ -125,6 +133,7 @@ if ($requiresPrivilegedRuntime -and -not $principal.IsInRole([Security.Principal
 
 $repoRoot = Resolve-TinyCloudSourceRoot
 $tinycloudMainPackage = Resolve-TinyCloudMainPackage
+$tinycloudGoWorkdir = Resolve-TinyCloudGoWorkdir
 $runtimeRoot = Resolve-TinyTerraformRuntimeRoot
 $terraformDir = (Get-Location).Path
 $overridePath = Join-Path $terraformDir "tinycloud_providers_override.tf"
@@ -308,7 +317,7 @@ if ($requiresPrivilegedRuntime -and (Get-NetTCPConnection -LocalPort 443 -ErrorA
     throw "port 443 is already in use; tinyterraform cannot bind management.azure.com locally"
 }
 
-Push-Location $repoRoot
+Push-Location $tinycloudGoWorkdir
 try {
     & go build -o $tinycloudExe $tinycloudMainPackage
     if ($LASTEXITCODE -ne 0) {
