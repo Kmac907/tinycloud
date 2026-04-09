@@ -164,7 +164,7 @@ function Remove-HostsBlock {
 
 New-Item -ItemType Directory -Force $runtimeRoot,$dataRoot,$shimDir | Out-Null
 $terraformExe = Resolve-TerraformExe
-Write-Host ("Using terraform: " + $terraformExe)
+Write-Verbose ("Using terraform: " + $terraformExe)
 $shimPowerShellExe = (Get-Process -Id $PID).Path
 
 if (-not $requiresTinyCloudRuntime) {

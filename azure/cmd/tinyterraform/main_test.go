@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -131,6 +133,46 @@ func TestResolveTerraformExeHonorsEnvironmentOverride(t *testing.T) {
 	}
 	if path != override {
 		t.Fatalf("resolveTerraformExe() = %q, want %q", path, override)
+	}
+}
+
+func TestTinyTerraformScriptPreservesMachineReadableStdout(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform script test requires Windows")
+	}
+
+	powerShellExe, err := resolvePowerShellExe(exec.LookPath)
+	if err != nil {
+		t.Fatalf("resolvePowerShellExe() error = %v", err)
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	scriptPath := filepath.Join(repoRoot, "scripts", "tinyterraform.ps1")
+
+	override := filepath.Join(t.TempDir(), "terraform.cmd")
+	shimOutput := `{"terraform_version":"shim","platform":"windows_amd64","provider_selections":{},"terraform_outdated":false}`
+	shimScript := "@echo off\r\necho " + shimOutput + "\r\nexit /b 0\r\n"
+	if err := os.WriteFile(override, []byte(shimScript), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "version", "-json")
+	cmd.Env = append(os.Environ(), "TERRAFORM_EXE="+override)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := strings.TrimSpace(stdout.String()); got != shimOutput {
+		t.Fatalf("stdout = %q, want %q", got, shimOutput)
 	}
 }
 
