@@ -68,10 +68,22 @@ function Test-RequiresTinyCloudRuntime {
     )
 }
 
+function Test-RequestsTerraformHelp {
+    param([string[]]$InputArgs)
+
+    foreach ($arg in $InputArgs) {
+        if ($arg -in @("-help", "--help", "-h")) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $TerraformArgs = Normalize-TerraformArgs -InputArgs $TerraformArgs
 
 $terraformSubcommand = Get-TerraformSubcommand -InputArgs $TerraformArgs
-$requiresTinyCloudRuntime = Test-RequiresTinyCloudRuntime -Subcommand $terraformSubcommand
+$requiresTinyCloudRuntime = -not (Test-RequestsTerraformHelp -InputArgs $TerraformArgs) -and (Test-RequiresTinyCloudRuntime -Subcommand $terraformSubcommand)
 $requiresPrivilegedRuntime = $requiresTinyCloudRuntime -and $terraformSubcommand -ne "init"
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())

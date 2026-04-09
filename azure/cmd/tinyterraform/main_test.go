@@ -245,6 +245,20 @@ func TestRequiresTinyCloudRuntime(t *testing.T) {
 	}
 }
 
+func TestRequestsTerraformHelp(t *testing.T) {
+	t.Parallel()
+
+	if !requestsTerraformHelp([]string{"apply", "-help"}) {
+		t.Fatal("requestsTerraformHelp(apply -help) = false, want true")
+	}
+	if !requestsTerraformHelp([]string{"-h"}) {
+		t.Fatal("requestsTerraformHelp(-h) = false, want true")
+	}
+	if requestsTerraformHelp([]string{"apply", "-auto-approve"}) {
+		t.Fatal("requestsTerraformHelp(apply -auto-approve) = true, want false")
+	}
+}
+
 func TestConsumesTerraformGlobalArgValue(t *testing.T) {
 	t.Parallel()
 
