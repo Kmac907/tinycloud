@@ -119,6 +119,12 @@ func runCommand(command string, args []string, stdin io.Reader, stdout, stderr i
 }
 
 func resolveTerraformExe(lookPath func(string) (string, error)) (string, error) {
+	if terraformExe := os.Getenv("TERRAFORM_EXE"); terraformExe != "" {
+		if _, err := os.Stat(terraformExe); err == nil {
+			return terraformExe, nil
+		}
+	}
+
 	for _, candidate := range []string{"terraform", "terraform.exe"} {
 		path, err := lookPath(candidate)
 		if err == nil {
@@ -158,7 +164,7 @@ func resolveTerraformExe(lookPath func(string) (string, error)) (string, error) 
 		}
 	}
 
-	return "", errors.New("terraform.exe was not found. Install Terraform or set TERRAFORM_EXE for the wrapper script path")
+	return "", errors.New("terraform.exe was not found. Install Terraform or set TERRAFORM_EXE")
 }
 
 func resolvePowerShellExe(lookPath func(string) (string, error)) (string, error) {

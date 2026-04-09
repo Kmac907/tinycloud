@@ -116,6 +116,24 @@ func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
 	}
 }
 
+func TestResolveTerraformExeHonorsEnvironmentOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho terraform shim\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("TERRAFORM_EXE", override)
+
+	path, err := resolveTerraformExe(func(string) (string, error) {
+		return "", errors.New("not found")
+	})
+	if err != nil {
+		t.Fatalf("resolveTerraformExe() error = %v", err)
+	}
+	if path != override {
+		t.Fatalf("resolveTerraformExe() = %q, want %q", path, override)
+	}
+}
+
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {
 	t.Parallel()
 
