@@ -92,6 +92,42 @@ func TestFindUpwardFindsWrapperScript(t *testing.T) {
 	}
 }
 
+func TestResolveTinyTerraformScriptHonorsExplicitScriptOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "custom-tinyterraform.ps1")
+	if err := os.WriteFile(override, []byte("Write-Host override"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("TINYTERRAFORM_SCRIPT", override)
+
+	path, err := resolveTinyTerraformScript(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveTinyTerraformScript() error = %v", err)
+	}
+	if path != override {
+		t.Fatalf("resolveTinyTerraformScript() = %q, want %q", path, override)
+	}
+}
+
+func TestResolveTinyTerraformScriptHonorsSourceRootOverride(t *testing.T) {
+	root := t.TempDir()
+	scriptPath := filepath.Join(root, "scripts", "tinyterraform.ps1")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("Write-Host source-root"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("TINYCLOUD_SOURCE_ROOT", root)
+
+	path, err := resolveTinyTerraformScript(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveTinyTerraformScript() error = %v", err)
+	}
+	if path != scriptPath {
+		t.Fatalf("resolveTinyTerraformScript() = %q, want %q", path, scriptPath)
+	}
+}
+
 func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
 	t.Parallel()
 

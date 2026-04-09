@@ -11,6 +11,19 @@ if (-not $TerraformArgs -or $TerraformArgs.Count -eq 0) {
     throw "usage: .\scripts\tinyterraform.ps1 <terraform arguments>"
 }
 
+function Resolve-TinyCloudSourceRoot {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_SOURCE_ROOT)) {
+        $sourceRoot = (Resolve-Path -LiteralPath $env:TINYCLOUD_SOURCE_ROOT).Path
+        $tinycloudMain = Join-Path $sourceRoot "cmd\tinycloud\main.go"
+        if (-not (Test-Path $tinycloudMain)) {
+            throw "TINYCLOUD_SOURCE_ROOT must point at a TinyCloud source tree containing cmd\tinycloud\main.go"
+        }
+        return $sourceRoot
+    }
+
+    return (Split-Path -Parent $PSScriptRoot)
+}
+
 function Normalize-TerraformArgs {
     param([string[]]$InputArgs)
 
@@ -94,7 +107,7 @@ if ($requiresPrivilegedRuntime -and -not $principal.IsInRole([Security.Principal
     throw "tinyterraform requires an elevated PowerShell session because it temporarily maps management.azure.com in the hosts file."
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Resolve-TinyCloudSourceRoot
 $terraformDir = (Get-Location).Path
 $overridePath = Join-Path $terraformDir "tinycloud_providers_override.tf"
 $runtimeRoot = Join-Path $repoRoot ".tinyterraform-runtime"
@@ -342,6 +355,15 @@ foreach ($key in $requiredKeys) {
 
 foreach ($key in $terraformEnvClearList) {
     Remove-Item -Path "Env:$key" -ErrorAction SilentlyContinue
+}
+
+if ($terraformSubcommand -eq "init") {
+    foreach ($key in $terraformEnvAllowList) {
+        Set-Item -Path "Env:$key" -Value $envMap[$key]
+    }
+
+    & $terraformExe @TerraformArgs
+    return
 }
 
 $certPath = $envMap["TINY_MGMT_HTTPS_CERT"]

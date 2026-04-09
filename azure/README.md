@@ -485,6 +485,14 @@ $env:GOCACHE="$PWD\.gocache"
 `cmd/tinyterraform` is the current first-class launcher entrypoint. On Windows it locates and invokes `scripts/tinyterraform.ps1`, which in turn invokes the real `terraform` binary, starts TinyCloud when needed, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is embedded in that wrapper, but the intended direction is a standalone `tinyaz` helper analogous to `azlocal`. Commands that actually need TinyCloud runtime routing still require an elevated PowerShell session today; pure local passthrough commands like `terraform help`, `terraform version`, `terraform login`, `terraform logout`, `terraform console`, and subcommand help requests like `terraform apply -help` do not. Terraform global flags such as `-chdir=...` are preserved by the launcher and wrapper so normal CLI invocation patterns continue to work, including PowerShell invocation. Both entrypoints also honor `TERRAFORM_EXE` when you need to point TinyCloud at a specific Terraform binary, and the wrapper preserves Terraform stdout for machine-readable commands like `version -json`.
 
 `tinyterraform.ps1 init` also resets the TinyCloud runtime state before running Terraform init. That keeps emulator state and Terraform state aligned after failed local applies.
+`tinyterraform init` uses that local reset/bootstrap path but does not need the HTTPS cert-trust and hosts-file routing that `apply` and `destroy` still require.
+
+For the planned command-layer migration, both entrypoints also support explicit path overrides:
+
+- `TINYCLOUD_SOURCE_ROOT` points the wrapper at the TinyCloud source tree it should build and run
+- `TINYTERRAFORM_SCRIPT` points the Go launcher at a specific `tinyterraform.ps1` script path
+
+Those overrides let the wrapper/launcher survive an intermediate repo-layout transition before the final `tinycloud\cmd` structure is in place.
 
 Compatibility goal:
 

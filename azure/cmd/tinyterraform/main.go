@@ -188,7 +188,20 @@ func resolvePowerShellExe(lookPath func(string) (string, error)) (string, error)
 }
 
 func resolveTinyTerraformScript(cwd string) (string, error) {
+	if scriptPath := os.Getenv("TINYTERRAFORM_SCRIPT"); scriptPath != "" {
+		if info, err := os.Stat(scriptPath); err == nil && !info.IsDir() {
+			return scriptPath, nil
+		}
+	}
+
 	relativePath := filepath.Join("scripts", "tinyterraform.ps1")
+	if sourceRoot := os.Getenv("TINYCLOUD_SOURCE_ROOT"); sourceRoot != "" {
+		candidate := filepath.Join(sourceRoot, relativePath)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+
 	for _, start := range candidateSearchRoots(cwd) {
 		path, err := findUpward(start, relativePath)
 		if err == nil {
