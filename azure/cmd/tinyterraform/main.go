@@ -60,7 +60,12 @@ func runE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 }
 
 func terraformSubcommand(args []string) string {
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if consumesTerraformGlobalArgValue(arg) {
+			i++
+			continue
+		}
 		if arg != "" && arg[0] != '-' {
 			return arg
 		}
@@ -69,10 +74,20 @@ func terraformSubcommand(args []string) string {
 }
 
 func normalizeTerraformArgs(args []string) []string {
-	if len(args) > 0 && args[0] == "--" {
-		return args[1:]
+	normalized := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if len(normalized) == 0 && arg == "--" {
+			continue
+		}
+		if arg == "-chdir=" && i+1 < len(args) {
+			normalized = append(normalized, "-chdir="+args[i+1])
+			i++
+			continue
+		}
+		normalized = append(normalized, arg)
 	}
-	return args
+	return normalized
 }
 
 func requiresTinyCloudRuntime(subcommand string) bool {
@@ -82,6 +97,10 @@ func requiresTinyCloudRuntime(subcommand string) bool {
 	default:
 		return true
 	}
+}
+
+func consumesTerraformGlobalArgValue(arg string) bool {
+	return arg == "-chdir" || arg == "-chdir="
 }
 
 func runCommand(command string, args []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {

@@ -125,11 +125,41 @@ func TestTerraformSubcommandSkipsFlags(t *testing.T) {
 	}
 }
 
+func TestTerraformSubcommandSkipsGlobalFlagValues(t *testing.T) {
+	t.Parallel()
+
+	value := terraformSubcommand([]string{"-chdir", ".", "version", "-json"})
+	if value != "version" {
+		t.Fatalf("terraformSubcommand() = %q, want %q", value, "version")
+	}
+
+	value = terraformSubcommand([]string{"-chdir=", ".", "version", "-json"})
+	if value != "version" {
+		t.Fatalf("terraformSubcommand() with PowerShell-split -chdir= = %q, want %q", value, "version")
+	}
+}
+
 func TestNormalizeTerraformArgsDropsGoRunSeparator(t *testing.T) {
 	t.Parallel()
 
 	args := normalizeTerraformArgs([]string{"--", "version", "-json"})
 	expected := []string{"version", "-json"}
+
+	if len(args) != len(expected) {
+		t.Fatalf("len(args) = %d, want %d", len(args), len(expected))
+	}
+	for i, value := range expected {
+		if args[i] != value {
+			t.Fatalf("args[%d] = %q, want %q", i, args[i], value)
+		}
+	}
+}
+
+func TestNormalizeTerraformArgsRejoinsPowerShellSplitChdirEquals(t *testing.T) {
+	t.Parallel()
+
+	args := normalizeTerraformArgs([]string{"-chdir=", ".", "version", "-json"})
+	expected := []string{"-chdir=.", "version", "-json"}
 
 	if len(args) != len(expected) {
 		t.Fatalf("len(args) = %d, want %d", len(args), len(expected))
@@ -149,5 +179,19 @@ func TestRequiresTinyCloudRuntime(t *testing.T) {
 	}
 	if !requiresTinyCloudRuntime("apply") {
 		t.Fatal("requiresTinyCloudRuntime(apply) = false, want true")
+	}
+}
+
+func TestConsumesTerraformGlobalArgValue(t *testing.T) {
+	t.Parallel()
+
+	if !consumesTerraformGlobalArgValue("-chdir") {
+		t.Fatal("consumesTerraformGlobalArgValue(-chdir) = false, want true")
+	}
+	if !consumesTerraformGlobalArgValue("-chdir=") {
+		t.Fatal("consumesTerraformGlobalArgValue(-chdir=) = false, want true")
+	}
+	if consumesTerraformGlobalArgValue("-chdir=examples") {
+		t.Fatal("consumesTerraformGlobalArgValue(-chdir=examples) = true, want false")
 	}
 }

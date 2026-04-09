@@ -11,10 +11,32 @@ if (-not $TerraformArgs -or $TerraformArgs.Count -eq 0) {
     throw "usage: .\scripts\tinyterraform.ps1 <terraform arguments>"
 }
 
+function Normalize-TerraformArgs {
+    param([string[]]$InputArgs)
+
+    $normalized = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $InputArgs.Count; $i++) {
+        $arg = $InputArgs[$i]
+        if ($arg -eq "-chdir=" -and $i + 1 -lt $InputArgs.Count) {
+            $normalized.Add("-chdir=$($InputArgs[$i + 1])")
+            $i++
+            continue
+        }
+        $normalized.Add($arg)
+    }
+
+    return $normalized.ToArray()
+}
+
 function Get-TerraformSubcommand {
     param([string[]]$InputArgs)
 
-    foreach ($arg in $InputArgs) {
+    for ($i = 0; $i -lt $InputArgs.Count; $i++) {
+        $arg = $InputArgs[$i]
+        if ($arg -eq "-chdir" -or $arg -eq "-chdir=") {
+            $i++
+            continue
+        }
         if (-not [string]::IsNullOrWhiteSpace($arg) -and -not $arg.StartsWith("-")) {
             return $arg.ToLowerInvariant()
         }
@@ -44,6 +66,8 @@ function Test-RequiresTinyCloudRuntime {
         "untaint"
     )
 }
+
+$TerraformArgs = Normalize-TerraformArgs -InputArgs $TerraformArgs
 
 $terraformSubcommand = Get-TerraformSubcommand -InputArgs $TerraformArgs
 $requiresTinyCloudRuntime = Test-RequiresTinyCloudRuntime -Subcommand $terraformSubcommand
