@@ -52,6 +52,7 @@ function Test-RequiresTinyCloudRuntime {
     }
 
     return $Subcommand -notin @(
+        "help",
         "version",
         "fmt",
         "validate",

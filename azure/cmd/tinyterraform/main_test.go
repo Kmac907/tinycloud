@@ -234,6 +234,9 @@ func TestNormalizeTerraformArgsRejoinsPowerShellSplitChdirEquals(t *testing.T) {
 func TestRequiresTinyCloudRuntime(t *testing.T) {
 	t.Parallel()
 
+	if requiresTinyCloudRuntime("help") {
+		t.Fatal("requiresTinyCloudRuntime(help) = true, want false")
+	}
 	if requiresTinyCloudRuntime("version") {
 		t.Fatal("requiresTinyCloudRuntime(version) = true, want false")
 	}
