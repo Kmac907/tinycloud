@@ -24,6 +24,22 @@ function Resolve-TinyCloudSourceRoot {
     return (Split-Path -Parent $PSScriptRoot)
 }
 
+function Resolve-TinyCloudMainPackage {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_MAIN_PACKAGE)) {
+        return $env:TINYCLOUD_MAIN_PACKAGE
+    }
+
+    return ".\cmd\tinycloud"
+}
+
+function Resolve-TinyTerraformRuntimeRoot {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_RUNTIME_ROOT)) {
+        return $env:TINYTERRAFORM_RUNTIME_ROOT
+    }
+
+    return (Join-Path $repoRoot ".tinyterraform-runtime")
+}
+
 function Normalize-TerraformArgs {
     param([string[]]$InputArgs)
 
@@ -108,9 +124,10 @@ if ($requiresPrivilegedRuntime -and -not $principal.IsInRole([Security.Principal
 }
 
 $repoRoot = Resolve-TinyCloudSourceRoot
+$tinycloudMainPackage = Resolve-TinyCloudMainPackage
+$runtimeRoot = Resolve-TinyTerraformRuntimeRoot
 $terraformDir = (Get-Location).Path
 $overridePath = Join-Path $terraformDir "tinycloud_providers_override.tf"
-$runtimeRoot = Join-Path $repoRoot ".tinyterraform-runtime"
 $dataRoot = Join-Path $runtimeRoot "data"
 $shimDir = Join-Path $runtimeRoot "shim"
 $serverStdout = Join-Path $runtimeRoot "tinycloud.stdout.log"
@@ -293,7 +310,7 @@ if ($requiresPrivilegedRuntime -and (Get-NetTCPConnection -LocalPort 443 -ErrorA
 
 Push-Location $repoRoot
 try {
-    & go build -o $tinycloudExe .\cmd\tinycloud
+    & go build -o $tinycloudExe $tinycloudMainPackage
     if ($LASTEXITCODE -ne 0) {
         throw "failed to build tinycloud"
     }
