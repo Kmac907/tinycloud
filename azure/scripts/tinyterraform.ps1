@@ -64,7 +64,9 @@ function Test-RequiresTinyCloudRuntime {
         "workspace",
         "force-unlock",
         "taint",
-        "untaint"
+        "untaint",
+        "login",
+        "logout"
     )
 }
 

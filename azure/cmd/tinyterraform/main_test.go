@@ -237,6 +237,12 @@ func TestRequiresTinyCloudRuntime(t *testing.T) {
 	if requiresTinyCloudRuntime("help") {
 		t.Fatal("requiresTinyCloudRuntime(help) = true, want false")
 	}
+	if requiresTinyCloudRuntime("login") {
+		t.Fatal("requiresTinyCloudRuntime(login) = true, want false")
+	}
+	if requiresTinyCloudRuntime("logout") {
+		t.Fatal("requiresTinyCloudRuntime(logout) = true, want false")
+	}
 	if requiresTinyCloudRuntime("version") {
 		t.Fatal("requiresTinyCloudRuntime(version) = true, want false")
 	}

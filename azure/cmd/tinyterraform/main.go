@@ -92,7 +92,7 @@ func normalizeTerraformArgs(args []string) []string {
 
 func requiresTinyCloudRuntime(subcommand string) bool {
 	switch subcommand {
-	case "", "help", "version", "fmt", "validate", "providers", "state", "output", "show", "graph", "workspace", "force-unlock", "taint", "untaint":
+	case "", "help", "version", "fmt", "validate", "providers", "state", "output", "show", "graph", "workspace", "force-unlock", "taint", "untaint", "login", "logout":
 		return false
 	default:
 		return true
