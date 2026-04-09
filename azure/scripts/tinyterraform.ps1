@@ -66,7 +66,8 @@ function Test-RequiresTinyCloudRuntime {
         "taint",
         "untaint",
         "login",
-        "logout"
+        "logout",
+        "console"
     )
 }
 
