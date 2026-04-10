@@ -485,7 +485,7 @@ During the repo-root migration, the same launcher can also be run from `tinyclou
 
 ```powershell
 $env:GOCACHE="$PWD\azure\.gocache"
-go run .\azure\cmd\tinyterraform -- version -json
+go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init
 ```
 
 Equivalent direct wrapper flow:

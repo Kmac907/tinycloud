@@ -13,7 +13,7 @@ During the repo-root migration, you can also launch the same wrapper from `tinyc
 
 ```powershell
 $env:GOCACHE="$PWD\azure\.gocache"
-go run .\azure\cmd\tinyterraform -- version -json
+go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init
 ```
 
 Equivalent direct wrapper flow:
