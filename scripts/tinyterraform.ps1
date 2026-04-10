@@ -31,5 +31,9 @@ if ([string]::IsNullOrWhiteSpace($env:TINYCLOUD_MAIN_PACKAGE)) {
     $env:TINYCLOUD_MAIN_PACKAGE = "tinycloud/cmd/tinycloud"
 }
 
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_RUNTIME_ROOT)) {
+    $env:TINYTERRAFORM_RUNTIME_ROOT = Join-Path $repoRoot ".tinyterraform-runtime"
+}
+
 & $azureWrapper @TerraformArgs
 exit $LASTEXITCODE

@@ -463,6 +463,11 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	repoRoot := filepath.Dir(azureRoot)
 	scriptPath := filepath.Join(repoRoot, "scripts", "tinyterraform.ps1")
+	runtimeRoot := filepath.Join(repoRoot, ".tinyterraform-runtime")
+	_ = os.RemoveAll(runtimeRoot)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(runtimeRoot)
+	})
 
 	workingDir := t.TempDir()
 	override := filepath.Join(workingDir, "terraform.cmd")
@@ -480,7 +485,6 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 	cmd.Env = append(
 		os.Environ(),
 		"TERRAFORM_EXE="+override,
-		"TINYTERRAFORM_RUNTIME_ROOT="+filepath.Join(workingDir, "tinyterraform-runtime"),
 		"GOCACHE="+goCache,
 	)
 	var stdout bytes.Buffer
@@ -494,6 +498,9 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 
 	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT init") {
 		t.Fatalf("stdout = %q, want SHIM_INIT init", got)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
+		t.Fatalf("repo-root default tinyterraform runtime was not created: %v", err)
 	}
 }
 
