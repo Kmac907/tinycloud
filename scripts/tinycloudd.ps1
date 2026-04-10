@@ -25,19 +25,29 @@ function Resolve-TinyCloudRuntimeRoot {
     return (Join-Path $repoRoot ".tinycloud-runtime")
 }
 
+function Resolve-TinyCloudDaemonPackage {
+    $topLevelPackage = Join-Path $repoRoot "cmd\tinycloudd\main.go"
+    if (Test-Path $topLevelPackage) {
+        return ".\cmd\tinycloudd"
+    }
+
+    return ".\azure\cmd\tinycloudd"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) {
     $env:GOCACHE = Join-Path (Join-Path $repoRoot "azure") ".gocache"
 }
 
 $tinycloudGoWorkdir = Resolve-TinyCloudGoWorkdir
 $runtimeRoot = Resolve-TinyCloudRuntimeRoot
+$tinycloudMainPackage = Resolve-TinyCloudDaemonPackage
 $tinycloudExe = Join-Path $runtimeRoot "tinycloudd.exe"
 
 New-Item -ItemType Directory -Force $runtimeRoot | Out-Null
 
 Push-Location $tinycloudGoWorkdir
 try {
-    & go build -o $tinycloudExe tinycloud/cmd/tinycloudd
+    & go build -o $tinycloudExe $tinycloudMainPackage
     if ($LASTEXITCODE -ne 0) {
         throw "failed to build tinycloudd"
     }

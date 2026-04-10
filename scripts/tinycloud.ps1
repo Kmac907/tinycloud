@@ -30,7 +30,12 @@ function Resolve-TinyCloudMainPackage {
         return $env:TINYCLOUD_MAIN_PACKAGE
     }
 
-    return "tinycloud/cmd/tinycloud"
+    $topLevelPackage = Join-Path $repoRoot "cmd\tinycloud\main.go"
+    if (Test-Path $topLevelPackage) {
+        return ".\cmd\tinycloud"
+    }
+
+    return ".\azure\cmd\tinycloud"
 }
 
 if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) {
