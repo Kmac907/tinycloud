@@ -392,6 +392,14 @@ go run .\cmd\tinycloud env pulumi
 go run .\cmd\tinycloud start
 ```
 
+From `tinycloud\`, the same control CLI is also available through the repo-root wrapper:
+
+```powershell
+.\scripts\tinycloud.ps1 init
+.\scripts\tinycloud.ps1 status
+.\scripts\tinycloud.ps1 env pulumi
+```
+
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
 
 During the command-layer migration, the repo root now contains a Go workspace file, so Go commands can also be run from `tinycloud\` while the implementation still lives under `tinycloud\azure`:
@@ -401,6 +409,12 @@ $env:GOCACHE="$PWD\azure\.gocache"
 go test ./azure/...
 go run .\azure\cmd\tinycloud env pulumi
 docker build -t tinycloud-azure .
+```
+
+The repo root also exposes a thin `tinycloud` wrapper for the current transition layout:
+
+```powershell
+.\scripts\tinycloud.ps1 env pulumi
 ```
 
 TinyCloud's compatibility direction is intentionally LocalStack-style:

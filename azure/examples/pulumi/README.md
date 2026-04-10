@@ -6,6 +6,12 @@ Start TinyCloud and print the local environment values:
 go run .\cmd\tinycloud env pulumi
 ```
 
+During the repo-root migration, the same environment output is also available from `tinycloud\`:
+
+```powershell
+.\scripts\tinycloud.ps1 env pulumi
+```
+
 Use the printed values to configure a local Azure-native or ARM-based Pulumi program. The minimum values are:
 
 - `ARM_ENDPOINT`
