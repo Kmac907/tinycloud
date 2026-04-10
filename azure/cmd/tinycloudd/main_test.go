@@ -49,10 +49,13 @@ func TestRepoRootTinyClouddScriptServesHealthEndpoint(t *testing.T) {
 	dnsPort := reserveUDPPort(t)
 
 	dataRoot := t.TempDir()
+	runtimeRoot := filepath.Join(azureRoot, ".verify-root-tinycloudd-runtime")
+	_ = os.RemoveAll(runtimeRoot)
 
 	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
 	cmd.Env = append(os.Environ(),
 		"GOCACHE="+filepath.Join(azureRoot, ".gocache"),
+		"TINYCLOUD_RUNTIME_ROOT="+runtimeRoot,
 		"TINYCLOUD_DATA_ROOT="+dataRoot,
 		"TINYCLOUD_LISTEN_HOST=127.0.0.1",
 		"TINYCLOUD_ADVERTISE_HOST=127.0.0.1",
@@ -79,6 +82,8 @@ func TestRepoRootTinyClouddScriptServesHealthEndpoint(t *testing.T) {
 	t.Cleanup(func() {
 		stopProcessListeningOnTCPPort(t, httpPort)
 		killProcessIfRunning(t, cmd.Process)
+		waitForCommandExit(t, cmd)
+		removePathWithRetries(t, runtimeRoot)
 	})
 
 	healthURL := fmt.Sprintf("http://127.0.0.1:%s/_admin/healthz", httpPort)
@@ -89,6 +94,9 @@ func TestRepoRootTinyClouddScriptServesHealthEndpoint(t *testing.T) {
 			body, readErr := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if readErr == nil && resp.StatusCode == http.StatusOK && strings.Contains(string(body), "ok") {
+				if _, statErr := os.Stat(filepath.Join(runtimeRoot, "tinycloudd.exe")); statErr != nil {
+					t.Fatalf("tinycloudd.exe was not built in runtime root: %v", statErr)
+				}
 				return
 			}
 		}
@@ -140,5 +148,31 @@ func killProcessIfRunning(t *testing.T, process *os.Process) {
 	}
 	if err := process.Kill(); err != nil && !strings.Contains(strings.ToLower(err.Error()), "finished") {
 		// The server process is the important one; killing the wrapper shell is best-effort.
+	}
+}
+
+func waitForCommandExit(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case <-time.After(10 * time.Second):
+	case <-done:
+	}
+}
+
+func removePathWithRetries(t *testing.T, path string) {
+	t.Helper()
+	for i := 0; i < 20; i++ {
+		err := os.RemoveAll(path)
+		if err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }

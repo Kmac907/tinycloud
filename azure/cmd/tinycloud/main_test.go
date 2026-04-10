@@ -94,9 +94,14 @@ func TestRepoRootTinyCloudScriptRunsEnvPulumi(t *testing.T) {
 	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	repoRoot := filepath.Dir(azureRoot)
 	scriptPath := filepath.Join(repoRoot, "scripts", "tinycloud.ps1")
+	runtimeRoot := filepath.Join(t.TempDir(), "tinycloud-runtime")
 
 	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "env", "pulumi")
-	cmd.Env = append(os.Environ(), "GOCACHE="+filepath.Join(azureRoot, ".gocache"))
+	cmd.Env = append(
+		os.Environ(),
+		"GOCACHE="+filepath.Join(azureRoot, ".gocache"),
+		"TINYCLOUD_RUNTIME_ROOT="+runtimeRoot,
+	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -104,6 +109,9 @@ func TestRepoRootTinyCloudScriptRunsEnvPulumi(t *testing.T) {
 
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
+		t.Fatalf("tinycloud.exe was not built in runtime root: %v", err)
 	}
 
 	output := stdout.String()

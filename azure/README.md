@@ -418,6 +418,8 @@ The repo root also exposes a thin `tinycloud` wrapper for the current transition
 .\scripts\tinycloud.ps1 env pulumi
 ```
 
+Those repo-root wrappers now build the current Azure-backed binaries through the repo-root Go workspace and cache them under `.tinycloud-runtime` by default.
+
 TinyCloud's compatibility direction is intentionally LocalStack-style:
 
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
