@@ -16,6 +16,13 @@ $env:GOCACHE="$PWD\azure\.gocache"
 go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init
 ```
 
+The repo root also exposes the wrapper script directly:
+
+```powershell
+$env:GOCACHE="$PWD\azure\.gocache"
+.\scripts\tinyterraform.ps1 -chdir=.\azure\examples\terraform\resource-group init
+```
+
 Equivalent direct wrapper flow:
 
 ```powershell
@@ -46,5 +53,6 @@ For the planned top-level `tinycloud\cmd` migration, the current wrapper layer a
 - `TINYTERRAFORM_RUNTIME_ROOT` to isolate the wrapper runtime directory when you need multiple migration-style runs side by side
 
 If the wrapper is temporarily relocated under a provider path like `azure\scripts`, it now searches upward for `cmd\tinycloud\main.go` automatically, so `TINYCLOUD_SOURCE_ROOT` is only needed when auto-discovery is not enough.
+The repo-root wrapper uses those same overrides to route the top-level `.\scripts\tinyterraform.ps1` path through the current Azure source tree while the command-layer migration is still in progress.
 
 The long-term direction is to keep this flow as close as practical to normal `terraform` and `az` usage so users can rely on familiar command-line habits inside the local emulator environment.

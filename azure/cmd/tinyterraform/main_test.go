@@ -149,7 +149,7 @@ func TestResolveTinyTerraformScriptHonorsRelativePathOverride(t *testing.T) {
 	}
 }
 
-func TestResolveTinyTerraformScriptFindsAzureWrapperFromRepoRootWorkingDirectory(t *testing.T) {
+func TestResolveTinyTerraformScriptFindsRepoRootWrapperFromRepoRootWorkingDirectory(t *testing.T) {
 	t.Parallel()
 
 	_, file, _, ok := runtime.Caller(0)
@@ -159,7 +159,7 @@ func TestResolveTinyTerraformScriptFindsAzureWrapperFromRepoRootWorkingDirectory
 
 	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	repoRoot := filepath.Dir(azureRoot)
-	want := filepath.Join(azureRoot, "scripts", "tinyterraform.ps1")
+	want := filepath.Join(repoRoot, "scripts", "tinyterraform.ps1")
 
 	path, err := resolveTinyTerraformScript(repoRoot)
 	if err != nil {
@@ -429,6 +429,57 @@ func TestTinyTerraformScriptAutoDetectsSourceRootFromNestedScriptPathOnInit(t *t
 		"TERRAFORM_EXE="+override,
 		"TINYCLOUD_GO_WORKDIR="+goWorkDir,
 		"TINYCLOUD_MAIN_PACKAGE=tinycloud/cmd/tinycloud",
+		"TINYTERRAFORM_RUNTIME_ROOT="+filepath.Join(workingDir, "tinyterraform-runtime"),
+		"GOCACHE="+goCache,
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT init") {
+		t.Fatalf("stdout = %q, want SHIM_INIT init", got)
+	}
+}
+
+func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform script test requires Windows")
+	}
+
+	powerShellExe, err := resolvePowerShellExe(exec.LookPath)
+	if err != nil {
+		t.Fatalf("resolvePowerShellExe() error = %v", err)
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+	scriptPath := filepath.Join(repoRoot, "scripts", "tinyterraform.ps1")
+
+	workingDir := t.TempDir()
+	override := filepath.Join(workingDir, "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho SHIM_INIT %*\r\nexit /b 0\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	goCache := filepath.Join(workingDir, "gocache")
+	if err := os.MkdirAll(goCache, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "init")
+	cmd.Dir = workingDir
+	cmd.Env = append(
+		os.Environ(),
+		"TERRAFORM_EXE="+override,
 		"TINYTERRAFORM_RUNTIME_ROOT="+filepath.Join(workingDir, "tinyterraform-runtime"),
 		"GOCACHE="+goCache,
 	)
