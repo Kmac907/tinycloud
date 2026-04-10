@@ -9,6 +9,13 @@ go run ..\..\..\cmd\tinyterraform -- apply -auto-approve
 go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
 ```
 
+During the repo-root migration, you can also launch the same wrapper from `tinycloud\`:
+
+```powershell
+$env:GOCACHE="$PWD\azure\.gocache"
+go run .\azure\cmd\tinyterraform -- version -json
+```
+
 Equivalent direct wrapper flow:
 
 ```powershell

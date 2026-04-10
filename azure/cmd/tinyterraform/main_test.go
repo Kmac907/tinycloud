@@ -149,6 +149,27 @@ func TestResolveTinyTerraformScriptHonorsRelativePathOverride(t *testing.T) {
 	}
 }
 
+func TestResolveTinyTerraformScriptFindsAzureWrapperFromRepoRootWorkingDirectory(t *testing.T) {
+	t.Parallel()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+	want := filepath.Join(azureRoot, "scripts", "tinyterraform.ps1")
+
+	path, err := resolveTinyTerraformScript(repoRoot)
+	if err != nil {
+		t.Fatalf("resolveTinyTerraformScript() error = %v", err)
+	}
+	if path != want {
+		t.Fatalf("resolveTinyTerraformScript() = %q, want %q", path, want)
+	}
+}
+
 func TestBuildPowerShellCommandArgsPassesThroughFlags(t *testing.T) {
 	t.Parallel()
 
