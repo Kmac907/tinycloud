@@ -398,6 +398,7 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 .\scripts\tinycloud.ps1 init
 .\scripts\tinycloud.ps1 status
 .\scripts\tinycloud.ps1 env pulumi
+.\scripts\tinycloudd.ps1
 ```
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
@@ -587,6 +588,13 @@ Compatibility goal:
 $env:TINYCLOUD_DATA_ROOT="$PWD\data"
 go run .\cmd\tinycloud init
 go run .\cmd\tinycloudd
+```
+
+From `tinycloud\`, the same runtime entrypoint is also available through the repo-root wrapper:
+
+```powershell
+$env:TINYCLOUD_DATA_ROOT="$PWD\azure\data"
+.\scripts\tinycloudd.ps1
 ```
 
 In another terminal:
