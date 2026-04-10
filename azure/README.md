@@ -394,6 +394,14 @@ go run .\cmd\tinycloud start
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
 
+During the command-layer migration, the repo root now contains a Go workspace file, so Go commands can also be run from `tinycloud\` while the implementation still lives under `tinycloud\azure`:
+
+```powershell
+$env:GOCACHE="$PWD\azure\.gocache"
+go test ./azure/...
+go run .\azure\cmd\tinycloud env pulumi
+```
+
 TinyCloud's compatibility direction is intentionally LocalStack-style:
 
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
