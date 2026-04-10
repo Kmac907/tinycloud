@@ -400,6 +400,7 @@ During the command-layer migration, the repo root now contains a Go workspace fi
 $env:GOCACHE="$PWD\azure\.gocache"
 go test ./azure/...
 go run .\azure\cmd\tinycloud env pulumi
+docker build -f .\azure\Dockerfile --build-arg TINYCLOUD_CONTEXT_ROOT=azure -t tinycloud-azure .
 ```
 
 TinyCloud's compatibility direction is intentionally LocalStack-style:
@@ -600,6 +601,12 @@ docker run --rm `
   -p 4585:4585 `
   -v "${PWD}\data:/var/lib/tinycloud" `
   tinycloud-azure
+```
+
+During the repo-root migration, the same image can also be built from `tinycloud\` without copying the Dockerfile to the top level:
+
+```powershell
+docker build -f .\azure\Dockerfile --build-arg TINYCLOUD_CONTEXT_ROOT=azure -t tinycloud-azure .
 ```
 
 ## How TinyCloud Compares

@@ -1,9 +1,13 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-COPY go.mod ./
-COPY cmd ./cmd
-COPY internal ./internal
+ARG TINYCLOUD_CONTEXT_ROOT=.
+
+# Allow the same Dockerfile to build from either the Azure tree or the repo root.
+COPY ${TINYCLOUD_CONTEXT_ROOT}/go.mod ./go.mod
+COPY ${TINYCLOUD_CONTEXT_ROOT}/go.sum ./go.sum
+COPY ${TINYCLOUD_CONTEXT_ROOT}/cmd ./cmd
+COPY ${TINYCLOUD_CONTEXT_ROOT}/internal ./internal
 
 RUN go build -o /out/tinycloud ./cmd/tinycloud && \
     go build -o /out/tinycloudd ./cmd/tinycloudd
