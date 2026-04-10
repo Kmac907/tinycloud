@@ -39,7 +39,7 @@ function Resolve-TinyCloudMainPackage {
 }
 
 if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) {
-    $env:GOCACHE = Join-Path (Join-Path $repoRoot "azure") ".gocache"
+    $env:GOCACHE = Join-Path $repoRoot ".gocache"
 }
 
 $tinycloudGoWorkdir = Resolve-TinyCloudGoWorkdir

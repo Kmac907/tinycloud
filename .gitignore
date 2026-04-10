@@ -1,2 +1,3 @@
 .tinycloud-runtime/
 .tinyterraform-runtime/
+.gocache/

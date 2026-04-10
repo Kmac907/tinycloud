@@ -203,11 +203,7 @@ $healthEndpoint = "http://127.0.0.1:4566/_admin/healthz"
 
 $goCache = $env:GOCACHE
 if ([string]::IsNullOrWhiteSpace($goCache)) {
-    $goCacheRoot = $tinycloudSourceRoot
-    if (-not (Test-Path $goCacheRoot)) {
-        $goCacheRoot = $repoRoot
-    }
-    $goCache = Join-Path $goCacheRoot ".gocache"
+    $goCache = Join-Path $repoRoot ".gocache"
 }
 
 function Resolve-TerraformExe {

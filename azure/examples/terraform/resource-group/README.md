@@ -12,14 +12,14 @@ go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
 During the repo-root migration, you can also launch the same wrapper from `tinycloud\`:
 
 ```powershell
-$env:GOCACHE="$PWD\azure\.gocache"
+$env:GOCACHE="$PWD\.gocache"
 go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init
 ```
 
 The repo root also exposes the wrapper script directly:
 
 ```powershell
-$env:GOCACHE="$PWD\azure\.gocache"
+$env:GOCACHE="$PWD\.gocache"
 .\scripts\tinyterraform.ps1 -chdir=.\azure\examples\terraform\resource-group init
 ```
 
