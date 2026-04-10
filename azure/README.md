@@ -538,7 +538,7 @@ For the planned command-layer migration, both entrypoints also support explicit 
 
 Those overrides let the wrapper/launcher survive an intermediate repo-layout transition before the final `tinycloud\cmd` structure is in place.
 The wrapper also now searches upward from its own location for `cmd\tinycloud\main.go`, so a script temporarily relocated under a provider path like `azure\scripts` can still find the real TinyCloud root without requiring `TINYCLOUD_SOURCE_ROOT`.
-The repo-root wrapper sets `TINYCLOUD_SOURCE_ROOT`, `TINYCLOUD_GO_WORKDIR`, and `TINYCLOUD_MAIN_PACKAGE` defaults for the current transition layout, so the top-level `.\scripts\tinyterraform.ps1` path can drive the existing Azure implementation through the repo-root Go workspace.
+The repo-root wrapper is now a first-class script at `tinycloud\scripts\tinyterraform.ps1`. It auto-detects the current Azure-backed source tree from the repo root, builds through the repo-root Go workspace, and keeps the same compatibility behavior without delegating through `azure\scripts\tinyterraform.ps1`.
 When you use the repo-root wrapper, its runtime artifacts now default to `tinycloud\.tinyterraform-runtime` unless you override `TINYTERRAFORM_RUNTIME_ROOT`.
 
 Compatibility goal:

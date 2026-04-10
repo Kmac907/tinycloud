@@ -504,6 +504,70 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 	}
 }
 
+func TestRepoRootTinyTerraformScriptDoesNotRequireAzureWrapperForPassthrough(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform script test requires Windows")
+	}
+
+	powerShellExe, err := resolvePowerShellExe(exec.LookPath)
+	if err != nil {
+		t.Fatalf("resolvePowerShellExe() error = %v", err)
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+	originalScriptPath := filepath.Join(repoRoot, "scripts", "tinyterraform.ps1")
+
+	verifyRoot := t.TempDir()
+	scriptDir := filepath.Join(verifyRoot, "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	scriptContents, err := os.ReadFile(originalScriptPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	scriptPath := filepath.Join(scriptDir, "tinyterraform.ps1")
+	if err := os.WriteFile(scriptPath, scriptContents, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	sourceRoot := filepath.Join(verifyRoot, "azure", "cmd", "tinycloud")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "main.go"), []byte("package main\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(main.go) error = %v", err)
+	}
+
+	override := filepath.Join(verifyRoot, "terraform.cmd")
+	shimOutput := `{"terraform_version":"shim","platform":"windows_amd64","provider_selections":{},"terraform_outdated":false}`
+	shimScript := "@echo off\r\necho " + shimOutput + "\r\nexit /b 0\r\n"
+	if err := os.WriteFile(override, []byte(shimScript), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
+
+	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "version", "-json")
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "TERRAFORM_EXE="+override)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := strings.TrimSpace(stdout.String()); got != shimOutput {
+		t.Fatalf("stdout = %q, want %q", got, shimOutput)
+	}
+}
+
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {
 	t.Parallel()
 
