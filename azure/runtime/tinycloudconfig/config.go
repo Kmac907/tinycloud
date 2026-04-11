@@ -63,34 +63,44 @@ type Config struct {
 }
 
 func FromEnv() Config {
-	advertiseHost := envOrDefault("TINYCLOUD_ADVERTISE_HOST", defaultAdvertiseHost())
-	host := envOrDefault("TINYCLOUD_HOST", "")
+	return FromLookup(os.Getenv)
+}
+
+func FromMap(values map[string]string) Config {
+	return FromLookup(func(key string) string {
+		return values[key]
+	})
+}
+
+func FromLookup(lookup func(string) string) Config {
+	advertiseHost := envOrDefaultLookup(lookup, "TINYCLOUD_ADVERTISE_HOST", defaultAdvertiseHost())
+	host := envOrDefaultLookup(lookup, "TINYCLOUD_HOST", "")
 	if host != "" {
 		advertiseHost = host
 	}
 
 	return Config{
-		ListenHost:     envOrDefault("TINYCLOUD_LISTEN_HOST", defaultListenHost()),
+		ListenHost:     envOrDefaultLookup(lookup, "TINYCLOUD_LISTEN_HOST", defaultListenHost()),
 		AdvertiseHost:  advertiseHost,
-		ManagementHTTP: envOrDefault("TINYCLOUD_MGMT_HTTP_PORT", "4566"),
-		ManagementTLS:  envOrDefault("TINYCLOUD_MGMT_HTTPS_PORT", "4567"),
-		Blob:           envOrDefault("TINYCLOUD_BLOB_PORT", "4577"),
-		Queue:          envOrDefault("TINYCLOUD_QUEUE_PORT", "4578"),
-		Table:          envOrDefault("TINYCLOUD_TABLE_PORT", "4579"),
-		KeyVault:       envOrDefault("TINYCLOUD_KEYVAULT_PORT", "4580"),
-		ServiceBus:     envOrDefault("TINYCLOUD_SERVICEBUS_PORT", "4581"),
-		AppConfig:      envOrDefault("TINYCLOUD_APPCONFIG_PORT", "4582"),
-		Cosmos:         envOrDefault("TINYCLOUD_COSMOS_PORT", "4583"),
-		DNS:            envOrDefault("TINYCLOUD_DNS_PORT", "4584"),
-		EventHubs:      envOrDefault("TINYCLOUD_EVENTHUBS_PORT", "4585"),
-		DataRoot:       envOrDefault("TINYCLOUD_DATA_ROOT", defaultDataRoot()),
-		TenantID:       envOrDefault("TINYCLOUD_TENANT_ID", defaultTenantID()),
-		SubscriptionID: envOrDefault("TINYCLOUD_SUBSCRIPTION_ID", defaultSubscriptionID()),
-		TokenIssuer:    envOrDefault("TINYCLOUD_TOKEN_ISSUER", ""),
-		TokenAudience:  envOrDefault("TINYCLOUD_TOKEN_AUDIENCE", "https://management.azure.com/"),
-		TokenSubject:   envOrDefault("TINYCLOUD_TOKEN_SUBJECT", "tinycloud-local-user"),
-		TokenKey:       envOrDefault("TINYCLOUD_TOKEN_KEY", "tinycloud-dev-signing-key"),
-		Services:       ParseServiceSelection(os.Getenv("TINYCLOUD_SERVICES")),
+		ManagementHTTP: envOrDefaultLookup(lookup, "TINYCLOUD_MGMT_HTTP_PORT", "4566"),
+		ManagementTLS:  envOrDefaultLookup(lookup, "TINYCLOUD_MGMT_HTTPS_PORT", "4567"),
+		Blob:           envOrDefaultLookup(lookup, "TINYCLOUD_BLOB_PORT", "4577"),
+		Queue:          envOrDefaultLookup(lookup, "TINYCLOUD_QUEUE_PORT", "4578"),
+		Table:          envOrDefaultLookup(lookup, "TINYCLOUD_TABLE_PORT", "4579"),
+		KeyVault:       envOrDefaultLookup(lookup, "TINYCLOUD_KEYVAULT_PORT", "4580"),
+		ServiceBus:     envOrDefaultLookup(lookup, "TINYCLOUD_SERVICEBUS_PORT", "4581"),
+		AppConfig:      envOrDefaultLookup(lookup, "TINYCLOUD_APPCONFIG_PORT", "4582"),
+		Cosmos:         envOrDefaultLookup(lookup, "TINYCLOUD_COSMOS_PORT", "4583"),
+		DNS:            envOrDefaultLookup(lookup, "TINYCLOUD_DNS_PORT", "4584"),
+		EventHubs:      envOrDefaultLookup(lookup, "TINYCLOUD_EVENTHUBS_PORT", "4585"),
+		DataRoot:       envOrDefaultLookup(lookup, "TINYCLOUD_DATA_ROOT", defaultDataRoot()),
+		TenantID:       envOrDefaultLookup(lookup, "TINYCLOUD_TENANT_ID", defaultTenantID()),
+		SubscriptionID: envOrDefaultLookup(lookup, "TINYCLOUD_SUBSCRIPTION_ID", defaultSubscriptionID()),
+		TokenIssuer:    envOrDefaultLookup(lookup, "TINYCLOUD_TOKEN_ISSUER", ""),
+		TokenAudience:  envOrDefaultLookup(lookup, "TINYCLOUD_TOKEN_AUDIENCE", "https://management.azure.com/"),
+		TokenSubject:   envOrDefaultLookup(lookup, "TINYCLOUD_TOKEN_SUBJECT", "tinycloud-local-user"),
+		TokenKey:       envOrDefaultLookup(lookup, "TINYCLOUD_TOKEN_KEY", "tinycloud-dev-signing-key"),
+		Services:       ParseServiceSelection(lookup("TINYCLOUD_SERVICES")),
 	}
 }
 
@@ -475,6 +485,16 @@ func defaultAdvertiseHost() string {
 
 func envOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envOrDefaultLookup(lookup func(string) string, key, fallback string) string {
+	if lookup == nil {
+		return fallback
+	}
+	if value := lookup(key); value != "" {
 		return value
 	}
 	return fallback

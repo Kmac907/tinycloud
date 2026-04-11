@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,4 +372,84 @@ func TestRepoRootGoRunTopLevelTinyCloudEnvPulumi(t *testing.T) {
 			t.Fatalf("output missing %q in %q", fragment, output)
 		}
 	}
+}
+
+func TestRepoRootGoRunTopLevelTinyCloudPersistsServiceSelection(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("repo-root go run test requires Windows")
+	}
+
+	repoRoot := repoRootFromTestFile(t)
+	runtimeRoot := filepath.Join(t.TempDir(), "tinycloud-runtime")
+	baseEnv := append(os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+		"TINYCLOUD_RUNTIME_ROOT="+runtimeRoot,
+	)
+
+	disableCmd := exec.Command("go", "run", ".\\cmd\\tinycloud", "services", "disable", "storage", "secrets-config", "data", "messaging", "networking")
+	disableCmd.Dir = repoRoot
+	disableCmd.Env = baseEnv
+	var disableStdout bytes.Buffer
+	var disableStderr bytes.Buffer
+	disableCmd.Stdout = &disableStdout
+	disableCmd.Stderr = &disableStderr
+	if err := disableCmd.Run(); err != nil {
+		t.Fatalf("services disable error = %v, stderr = %q", err, disableStderr.String())
+	}
+	if !strings.Contains(disableStdout.String(), "services=management") {
+		t.Fatalf("services disable stdout = %q, want management-only selection", disableStdout.String())
+	}
+
+	configCmd := exec.Command("go", "run", ".\\cmd\\tinycloud", "config", "show", "--json")
+	configCmd.Dir = repoRoot
+	configCmd.Env = baseEnv
+	var configStdout bytes.Buffer
+	var configStderr bytes.Buffer
+	configCmd.Stdout = &configStdout
+	configCmd.Stderr = &configStderr
+	if err := configCmd.Run(); err != nil {
+		t.Fatalf("config show error = %v, stderr = %q", err, configStderr.String())
+	}
+
+	var configBody struct {
+		Services []string `json:"services"`
+	}
+	if err := json.Unmarshal(configStdout.Bytes(), &configBody); err != nil {
+		t.Fatalf("json.Unmarshal(config) error = %v", err)
+	}
+	if len(configBody.Services) != 1 || configBody.Services[0] != "management" {
+		t.Fatalf("config services = %#v, want management-only", configBody.Services)
+	}
+
+	endpointsCmd := exec.Command("go", "run", ".\\cmd\\tinycloud", "endpoints", "--json")
+	endpointsCmd.Dir = repoRoot
+	endpointsCmd.Env = baseEnv
+	var endpointsStdout bytes.Buffer
+	var endpointsStderr bytes.Buffer
+	endpointsCmd.Stdout = &endpointsStdout
+	endpointsCmd.Stderr = &endpointsStderr
+	if err := endpointsCmd.Run(); err != nil {
+		t.Fatalf("endpoints error = %v, stderr = %q", err, endpointsStderr.String())
+	}
+
+	var endpoints map[string]string
+	if err := json.Unmarshal(endpointsStdout.Bytes(), &endpoints); err != nil {
+		t.Fatalf("json.Unmarshal(endpoints) error = %v", err)
+	}
+	if endpoints["management"] == "" || endpoints["metadata"] == "" {
+		t.Fatalf("endpoints missing management values: %#v", endpoints)
+	}
+	if _, ok := endpoints["blob"]; ok {
+		t.Fatalf("endpoints unexpectedly included disabled blob service: %#v", endpoints)
+	}
+}
+
+func repoRootFromTestFile(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	return filepath.Dir(azureRoot)
 }
