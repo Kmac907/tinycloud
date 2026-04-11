@@ -254,6 +254,7 @@ Apply middleware in this order:
 - `snapshot restore` loads a snapshot file.
 - `status runtime` prints runtime/backend/container/process status for the active TinyCloud instance.
 - `status services` prints per-service readiness and enablement state for management and data-plane services.
+- `services list` should remain the inventory/config view, distinct from the runtime-oriented `status services` view.
 - `endpoints` prints all local URLs.
 - `config show` prints the effective TinyCloud runtime configuration.
 - `config validate` validates the current TinyCloud runtime configuration and startup prerequisites.

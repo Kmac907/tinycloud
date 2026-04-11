@@ -471,6 +471,7 @@ The human-readable terminal UX now follows a more structured LocalStack-style sh
 - default `tinycloud start` prints lifecycle steps, a runtime summary, endpoint table, and the next useful follow-up commands, then returns control to the shell
 - `tinycloud start --attached` is the explicit foreground mode when you want startup output followed by live logs
 - `tinycloud status runtime` and `tinycloud status services` render terminal tables instead of raw key=value lines
+- `tinycloud status services` is the runtime-status view, while `tinycloud services list` is the config/catalog inventory view
 - `tinycloud config show` renders grouped Runtime, Ports, and Services sections
 - `tinycloud endpoints` renders a stable endpoint table
 - interactive `tinycloud start` and `tinycloud logs -f` now render known structured TinyCloud runtime/request log lines as terminal sections instead of raw JSON, while unknown lines still fall back to raw output

@@ -2,6 +2,7 @@ package tinycloudcmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,6 +103,84 @@ func TestRunEServicesDisablePrintsRestartGuidanceWhenRuntimeActive(t *testing.T)
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("output missing %q in %q", fragment, output)
 		}
+	}
+}
+
+func TestRunEServicesListAndStatusServicesHaveDistinctJSONShapes(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := repoRootFromTestFile(t)
+	runtimeRoot := filepath.Join(t.TempDir(), "tinycloud-runtime")
+
+	oldRuntimeRoot := os.Getenv("TINYCLOUD_RUNTIME_ROOT")
+	oldServices := os.Getenv("TINYCLOUD_SERVICES")
+	t.Cleanup(func() {
+		if oldRuntimeRoot == "" {
+			_ = os.Unsetenv("TINYCLOUD_RUNTIME_ROOT")
+		} else {
+			_ = os.Setenv("TINYCLOUD_RUNTIME_ROOT", oldRuntimeRoot)
+		}
+		if oldServices == "" {
+			_ = os.Unsetenv("TINYCLOUD_SERVICES")
+		} else {
+			_ = os.Setenv("TINYCLOUD_SERVICES", oldServices)
+		}
+	})
+	if err := os.Setenv("TINYCLOUD_RUNTIME_ROOT", runtimeRoot); err != nil {
+		t.Fatalf("Setenv(TINYCLOUD_RUNTIME_ROOT) error = %v", err)
+	}
+	if err := os.Setenv("TINYCLOUD_SERVICES", "management,storage"); err != nil {
+		t.Fatalf("Setenv(TINYCLOUD_SERVICES) error = %v", err)
+	}
+
+	var listStdout bytes.Buffer
+	var listStderr bytes.Buffer
+	code, err := RunE([]string{"services", "list", "--json"}, &listStdout, &listStderr, func() (string, error) {
+		return repoRoot, nil
+	})
+	if err != nil {
+		t.Fatalf("RunE(services list) error = %v, stderr = %q", err, listStderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("RunE(services list) code = %d, stderr = %q", code, listStderr.String())
+	}
+
+	var listBody struct {
+		Services []map[string]any `json:"services"`
+	}
+	if err := json.Unmarshal(listStdout.Bytes(), &listBody); err != nil {
+		t.Fatalf("json.Unmarshal(services list) error = %v", err)
+	}
+	if len(listBody.Services) == 0 || listBody.Services[0]["family"] == nil {
+		t.Fatalf("services list json missing family field: %s", listStdout.String())
+	}
+	if _, ok := listBody.Services[0]["status"]; ok {
+		t.Fatalf("services list json unexpectedly contained status field: %s", listStdout.String())
+	}
+
+	var statusStdout bytes.Buffer
+	var statusStderr bytes.Buffer
+	code, err = RunE([]string{"status", "services", "--json"}, &statusStdout, &statusStderr, func() (string, error) {
+		return repoRoot, nil
+	})
+	if err != nil {
+		t.Fatalf("RunE(status services) error = %v, stderr = %q", err, statusStderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("RunE(status services) code = %d, stderr = %q", code, statusStderr.String())
+	}
+
+	var statusBody struct {
+		Services []map[string]any `json:"services"`
+	}
+	if err := json.Unmarshal(statusStdout.Bytes(), &statusBody); err != nil {
+		t.Fatalf("json.Unmarshal(status services) error = %v", err)
+	}
+	if len(statusBody.Services) == 0 || statusBody.Services[0]["status"] == nil {
+		t.Fatalf("status services json missing status field: %s", statusStdout.String())
+	}
+	if _, ok := statusBody.Services[0]["family"]; ok {
+		t.Fatalf("status services json unexpectedly contained family field: %s", statusStdout.String())
 	}
 }
 

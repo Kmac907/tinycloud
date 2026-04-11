@@ -81,13 +81,50 @@ func TestRenderServicesStatusUsesTableLayout(t *testing.T) {
 	for _, fragment := range []string{
 		"Service Status   1 enabled   1 disabled   0 failed",
 		"SERVICE",
-		"FAMILY",
+		"STATUS",
 		"management",
-		"✓ yes",
+		"✓ ready",
 		"○ disabled",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("renderServicesStatus() missing %q in:\n%s", fragment, output)
+		}
+	}
+}
+
+func TestRenderServicesListUsesInventoryLayout(t *testing.T) {
+	t.Parallel()
+
+	output := renderServicesList(terminalUI{}, []serviceStatusRow{
+		{
+			Name:     "management",
+			Family:   "control-plane",
+			Enabled:  true,
+			Health:   "ready",
+			Endpoint: "http://127.0.0.1:4566",
+		},
+		{
+			Name:     "blob",
+			Family:   "storage",
+			Enabled:  false,
+			Health:   "disabled",
+			Endpoint: "http://127.0.0.1:4577",
+		},
+	})
+
+	for _, fragment := range []string{
+		"Services",
+		"SERVICE",
+		"ENABLED",
+		"FAMILY",
+		"ENDPOINT",
+		"management",
+		"✓ yes",
+		"control-plane",
+		"http://127.0.0.1:4566",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("renderServicesList() missing %q in:\n%s", fragment, output)
 		}
 	}
 }

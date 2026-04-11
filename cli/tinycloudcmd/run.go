@@ -672,9 +672,31 @@ func statusRuntime(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, erro
 }
 
 func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, error) {
-	record, ok, err := activeRuntime(ctx.runtimeRoot)
+	rows, err := serviceStatusRows(ctx)
 	if err != nil {
 		return 1, err
+	}
+	if jsonOutput {
+		return 0, formatJSON(stdout, map[string]any{"services": serviceStatusJSONRows(rows)})
+	}
+	return 0, writeString(stdout, renderServicesStatus(newTerminalUI(stdout), rows))
+}
+
+func listServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, error) {
+	rows, err := serviceCatalogRows(ctx)
+	if err != nil {
+		return 1, err
+	}
+	if jsonOutput {
+		return 0, formatJSON(stdout, map[string]any{"services": serviceCatalogJSONRows(rows)})
+	}
+	return 0, writeString(stdout, renderServicesList(newTerminalUI(stdout), rows))
+}
+
+func serviceStatusRows(ctx cliContext) ([]serviceStatusRow, error) {
+	record, ok, err := activeRuntime(ctx.runtimeRoot)
+	if err != nil {
+		return nil, err
 	}
 
 	services := ctx.config.ServiceCatalog()
@@ -682,21 +704,13 @@ func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, err
 		services = record.Config.ServiceCatalog()
 		if runtimeStatus, err := readRuntimeStatus(record.Config); err == nil {
 			if rawServices, found := runtimeStatus["services"]; found {
-				if jsonOutput {
-					return 0, formatJSON(stdout, map[string]any{"services": rawServices})
-				}
 				rows, ok := serviceRowsFromRaw(rawServices)
 				if ok {
-					return 0, writeString(stdout, renderServicesStatus(newTerminalUI(stdout), rows))
+					return rows, nil
 				}
 			}
 		}
 	}
-
-	if jsonOutput {
-		return 0, formatJSON(stdout, map[string]any{"services": services})
-	}
-	ui := newTerminalUI(stdout)
 	rows := make([]serviceStatusRow, 0, len(services))
 	for _, service := range services {
 		health := "disabled"
@@ -711,7 +725,33 @@ func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, err
 			Endpoint: service.Endpoint,
 		})
 	}
-	return 0, writeString(stdout, renderServicesStatus(ui, rows))
+	return rows, nil
+}
+
+func serviceCatalogRows(ctx cliContext) ([]serviceStatusRow, error) {
+	record, ok, err := activeRuntime(ctx.runtimeRoot)
+	if err != nil {
+		return nil, err
+	}
+	services := ctx.config.ServiceCatalog()
+	if ok {
+		services = record.Config.ServiceCatalog()
+	}
+	rows := make([]serviceStatusRow, 0, len(services))
+	for _, service := range services {
+		health := "disabled"
+		if service.Enabled {
+			health = "ready"
+		}
+		rows = append(rows, serviceStatusRow{
+			Name:     string(service.Name),
+			Family:   service.Family,
+			Enabled:  service.Enabled,
+			Health:   health,
+			Endpoint: service.Endpoint,
+		})
+	}
+	return rows, nil
 }
 
 func runConfig(ctx cliContext, args []string, stdout io.Writer) (int, error) {
@@ -758,7 +798,7 @@ func runServices(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 	}
 	switch args[0] {
 	case "list":
-		return statusServices(ctx, hasJSONFlag(args[1:]), stdout)
+		return listServices(ctx, hasJSONFlag(args[1:]), stdout)
 	case "enable":
 		return updateServices(ctx, args[1:], true, stdout)
 	case "disable":
@@ -942,6 +982,30 @@ func serviceRowsFromRaw(raw any) ([]serviceStatusRow, bool) {
 		})
 	}
 	return rows, true
+}
+
+func serviceStatusJSONRows(rows []serviceStatusRow) []map[string]any {
+	values := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, map[string]any{
+			"name":   row.Name,
+			"status": strings.ToLower(strings.TrimSpace(row.Health)),
+		})
+	}
+	return values
+}
+
+func serviceCatalogJSONRows(rows []serviceStatusRow) []map[string]any {
+	values := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, map[string]any{
+			"name":     row.Name,
+			"enabled":  row.Enabled,
+			"family":   row.Family,
+			"endpoint": row.Endpoint,
+		})
+	}
+	return values
 }
 
 func hasJSONFlag(args []string) bool {
