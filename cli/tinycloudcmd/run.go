@@ -59,7 +59,7 @@ func RunE(args []string, stdout, stderr io.Writer, getwd func() (string, error))
 
 	switch args[0] {
 	case "start":
-		return runStart(ctx, args[1:], stdout, stderr)
+		return runStart(ctx, args[1:], stdout, stderr, true)
 	case "stop":
 		return runStop(ctx, stdout)
 	case "restart":
@@ -196,11 +196,12 @@ func resolveRuntimeBackend(flagValue string, env map[string]string) string {
 	return "process"
 }
 
-func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, error) {
+func runStart(ctx cliContext, args []string, stdout, stderr io.Writer, showBanner bool) (int, error) {
 	options, err := parseStartOptions(args)
 	if err != nil {
 		return 2, err
 	}
+	ui := newTerminalUI(stdout)
 
 	if record, ok, err := activeRuntime(ctx.runtimeRoot); err == nil && ok {
 		return 1, fmt.Errorf("TinyCloud is already running via %s", record.Backend)
@@ -243,7 +244,7 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 			Env:           append([]string(nil), options.env...),
 			Publish:       append([]string(nil), options.publish...),
 			Volumes:       append([]string(nil), options.volumes...),
-		}, options.detached, options.jsonOutput, stdout)
+		}, options.detached, options.jsonOutput, stdout, showBanner)
 	}
 
 	binaryPath, err := buildTinyClouddBinary(runCtx.repoRoot, runCtx.runtimeRoot, runCtx.env)
@@ -307,17 +308,17 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 		if options.jsonOutput {
 			return 0, formatJSON(stdout, summary)
 		}
-		_, err = fmt.Fprintf(stdout, "runtime=running\nruntimeId=process:%d\nbackend=process\npid=%d\nservices=%s\nlog=%s\n", cmd.Process.Pid, cmd.Process.Pid, joinServices(runCtx.config.EnabledServices()), logPath)
-		if runCtx.config.ServiceEnabled(tinycloudconfig.ServiceManagement) {
-			_, err = fmt.Fprintf(stdout, "management=%s\n", runCtx.config.ManagementHTTPURL())
-		}
-		for _, endpoint := range sortedEndpointLines(runCtx.config.EndpointMap()) {
-			_, err = fmt.Fprintln(stdout, endpoint)
-		}
-		_, err = fmt.Fprintln(stdout, "next=tinycloud status runtime")
-		_, err = fmt.Fprintln(stdout, "next=tinycloud logs -f")
-		_, err = fmt.Fprintln(stdout, "next=tinycloud stop")
-		return 0, err
+		return 0, writeString(stdout, renderDetachedStartOutput(ui, showBanner, "process", startSummary{
+			RuntimeID:  fmt.Sprintf("process:%d", cmd.Process.Pid),
+			Backend:    "process",
+			PID:        cmd.Process.Pid,
+			Services:   joinServices(runCtx.config.EnabledServices()),
+			LogPath:    logPath,
+			Container:  "",
+			Image:      "",
+			Management: managementValue(runCtx.config),
+			Endpoints:  runCtx.config.EndpointMap(),
+		}, []string{ui.success("build binary"), ui.success("start daemon"), ui.success("wait for health")}))
 	}
 
 	record := runtimeRecord{
@@ -347,9 +348,12 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 			return 1, err
 		}
 	} else {
-		_, _ = fmt.Fprintf(stdout, "runtime=starting\nbackend=process\nservices=%s\n", joinServices(runCtx.config.EnabledServices()))
-		if runCtx.config.ServiceEnabled(tinycloudconfig.ServiceManagement) {
-			_, _ = fmt.Fprintf(stdout, "management=%s\n", runCtx.config.ManagementHTTPURL())
+		if err := writeString(stdout, renderAttachedStartPrelude(ui, showBanner, "process", startSummary{
+			Backend:    "process",
+			Services:   joinServices(runCtx.config.EnabledServices()),
+			Management: managementValue(runCtx.config),
+		}, []string{ui.success("build binary"), ui.progress("start daemon"), ui.progress("stream logs")})); err != nil {
+			return 1, err
 		}
 	}
 
@@ -379,8 +383,8 @@ func runStop(ctx cliContext, stdout io.Writer) (int, error) {
 		return 1, err
 	}
 	if !ok {
-		_, err := fmt.Fprintln(stdout, "runtime=stopped")
-		return 0, err
+		ui := newTerminalUI(stdout)
+		return 0, writeString(stdout, renderStop(ui, "none", ""))
 	}
 	switch record.Backend {
 	case "", "process":
@@ -397,11 +401,23 @@ func runStop(ctx cliContext, stdout io.Writer) (int, error) {
 	if err := removeRuntimeRecord(ctx.runtimeRoot); err != nil {
 		return 1, err
 	}
-	_, err = fmt.Fprintf(stdout, "runtime=stopped\nbackend=%s\n", record.Backend)
-	return 0, err
+	ui := newTerminalUI(stdout)
+	identity := ""
+	switch record.Backend {
+	case "docker":
+		if record.Docker != nil {
+			identity = record.Docker.ContainerName
+		}
+	case "process", "":
+		if record.PID > 0 {
+			identity = fmt.Sprintf("process:%d", record.PID)
+		}
+	}
+	return 0, writeString(stdout, renderStop(ui, record.Backend, identity))
 }
 
 func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, error) {
+	ui := newTerminalUI(stdout)
 	detached := false
 	explicitMode := false
 	backend := ""
@@ -428,6 +444,9 @@ func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, e
 		return 1, err
 	}
 	if ok {
+		if err := writeString(stdout, renderRestartHeading(ui, record.Backend)); err != nil {
+			return 1, err
+		}
 		if !explicitMode {
 			detached = record.Detached
 		}
@@ -473,10 +492,11 @@ func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, e
 			startArgs = append(startArgs, "--network="+restartDocker.Network)
 		}
 	}
-	return runStart(ctx, startArgs, stdout, stderr)
+	return runStart(ctx, startArgs, stdout, stderr, false)
 }
 
 func runWait(ctx cliContext, args []string, stdout io.Writer) (int, error) {
+	ui := newTerminalUI(stdout)
 	timeout := defaultWaitTimeout
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
@@ -512,8 +532,7 @@ func runWait(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 	if err := waitForHealthy(record.Config, timeout); err != nil {
 		return 1, err
 	}
-	_, err = fmt.Fprintln(stdout, "runtime=ready")
-	return 0, err
+	return 0, writeString(stdout, renderWait(ui, record.Backend, timeout.String()))
 }
 
 func runLogs(ctx cliContext, args []string, stdout io.Writer) (int, error) {
@@ -532,9 +551,31 @@ func runLogs(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 	}
 	if !ok || record.LogPath == "" {
 		if record.Backend == "docker" && record.Docker != nil {
+			if ui := newTerminalUI(stdout); ui.interactive && follow {
+				if err := writeString(stdout, joinLines(
+					"Logs",
+					strings.TrimRight(ui.keyValues([][2]string{
+						{"backend", ui.active("docker")},
+						{"container", ui.active(record.Docker.ContainerName)},
+					}), "\n"),
+				)); err != nil {
+					return 1, err
+				}
+			}
 			return 0, dockerLogs(record.Docker.ContainerName, follow, stdout)
 		}
 		return 1, errors.New("no active TinyCloud runtime log is available")
+	}
+	if ui := newTerminalUI(stdout); ui.interactive && follow {
+		if err := writeString(stdout, joinLines(
+			"Logs",
+			strings.TrimRight(ui.keyValues([][2]string{
+				{"backend", ui.active("process")},
+				{"log", ui.active(record.LogPath)},
+			}), "\n"),
+		)); err != nil {
+			return 1, err
+		}
 	}
 	return 0, streamLog(record.LogPath, follow, stdout)
 }
@@ -570,10 +611,16 @@ func statusRuntime(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, erro
 
 	status := map[string]any{
 		"status":  "stopped",
-		"backend": "process",
+		"backend": resolveRuntimeBackend("", ctx.env),
 	}
 	if ok {
 		status["backend"] = record.Backend
+		if record.Backend == "process" && record.PID > 0 {
+			status["runtimeId"] = fmt.Sprintf("process:%d", record.PID)
+		}
+		if record.Backend == "docker" && record.Docker != nil {
+			status["runtimeId"] = firstNonEmpty(record.Docker.ContainerID, record.Docker.ContainerName)
+		}
 		status["pid"] = record.PID
 		status["detached"] = record.Detached
 		status["startedAt"] = record.StartedAt
@@ -595,23 +642,23 @@ func statusRuntime(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, erro
 	if jsonOutput {
 		return 0, formatJSON(stdout, status)
 	}
-	_, err = fmt.Fprintf(stdout, "runtime=%s\nbackend=%v\n", status["status"], status["backend"])
-	if pid, ok := status["pid"]; ok {
-		_, err = fmt.Fprintf(stdout, "pid=%v\n", pid)
+	ui := newTerminalUI(stdout)
+	view := map[string]string{
+		"management": managementValue(record.Config),
+		"dataRoot":   record.Config.DataRoot,
 	}
-	if container, ok := status["container"]; ok {
-		_, err = fmt.Fprintf(stdout, "container=%v\n", container)
-	}
-	if image, ok := status["image"]; ok {
-		_, err = fmt.Fprintf(stdout, "image=%v\n", image)
+	if !ok {
+		view["management"] = managementValue(ctx.config)
+		view["dataRoot"] = ctx.config.DataRoot
 	}
 	if services, ok := status["services"].([]tinycloudconfig.Service); ok {
-		_, err = fmt.Fprintf(stdout, "services=%s\n", joinServices(services))
+		names := make([]string, 0, len(services))
+		for _, service := range services {
+			names = append(names, string(service))
+		}
+		status["services"] = names
 	}
-	if logPath, ok := status["logPath"]; ok {
-		_, err = fmt.Fprintf(stdout, "log=%v\n", logPath)
-	}
-	return 0, err
+	return 0, writeString(stdout, renderRuntimeStatus(ui, status, view))
 }
 
 func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, error) {
@@ -628,7 +675,10 @@ func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, err
 				if jsonOutput {
 					return 0, formatJSON(stdout, map[string]any{"services": rawServices})
 				}
-				return 0, printGenericServices(stdout, rawServices)
+				rows, ok := serviceRowsFromRaw(rawServices)
+				if ok {
+					return 0, writeString(stdout, renderServicesStatus(newTerminalUI(stdout), rows))
+				}
 			}
 		}
 	}
@@ -636,13 +686,22 @@ func statusServices(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, err
 	if jsonOutput {
 		return 0, formatJSON(stdout, map[string]any{"services": services})
 	}
+	ui := newTerminalUI(stdout)
+	rows := make([]serviceStatusRow, 0, len(services))
 	for _, service := range services {
-		_, err = fmt.Fprintf(stdout, "name=%s enabled=%t family=%s endpoint=%s\n", service.Name, service.Enabled, service.Family, service.Endpoint)
-		if err != nil {
-			return 1, err
+		health := "disabled"
+		if service.Enabled {
+			health = "ready"
 		}
+		rows = append(rows, serviceStatusRow{
+			Name:     string(service.Name),
+			Family:   service.Family,
+			Enabled:  service.Enabled,
+			Health:   health,
+			Endpoint: service.Endpoint,
+		})
 	}
-	return 0, nil
+	return 0, writeString(stdout, renderServicesStatus(ui, rows))
 }
 
 func runConfig(ctx cliContext, args []string, stdout io.Writer) (int, error) {
@@ -663,13 +722,21 @@ func runConfig(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 		if jsonOutput {
 			return 0, formatJSON(stdout, configView(cfg))
 		}
-		return 0, printConfig(stdout, cfg)
+		ui := newTerminalUI(stdout)
+		backend := resolveRuntimeBackend("", ctx.env)
+		if ok {
+			backend = record.Backend
+		}
+		return 0, writeString(stdout, renderConfigShow(ui, configViewStringMap(cfg, backend)))
 	case "validate":
 		if err := ctx.config.Validate(); err != nil {
 			return 1, err
 		}
-		_, err := fmt.Fprintln(stdout, "config=valid")
-		return 0, err
+		ui := newTerminalUI(stdout)
+		return 0, writeString(stdout, joinLines(
+			"Configuration",
+			strings.TrimRight(ui.keyValues([][2]string{{"result", ui.success("valid")}}), "\n"),
+		))
 	default:
 		return 2, fmt.Errorf("unknown config subcommand %q", args[0])
 	}
@@ -731,12 +798,8 @@ func updateServices(ctx cliContext, values []string, enable bool, stdout io.Writ
 		return 1, err
 	}
 
-	_, err = fmt.Fprintf(stdout, "services=%s\n", ctx.env["TINYCLOUD_SERVICES"])
-	if ok {
-		_, err = fmt.Fprintln(stdout, "restartRequired=true")
-		_, err = fmt.Fprintln(stdout, "next=tinycloud restart")
-	}
-	return 0, err
+	ui := newTerminalUI(stdout)
+	return 0, writeString(stdout, renderServiceSelectionUpdated(ui, ctx.env["TINYCLOUD_SERVICES"], ok))
 }
 
 func runEndpoints(ctx cliContext, args []string, stdout io.Writer) (int, error) {
@@ -753,17 +816,8 @@ func runEndpoints(ctx cliContext, args []string, stdout io.Writer) (int, error) 
 	if jsonOutput {
 		return 0, formatJSON(stdout, endpoints)
 	}
-	keys := make([]string, 0, len(endpoints))
-	for key := range endpoints {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if _, err := fmt.Fprintf(stdout, "%s=%s\n", key, endpoints[key]); err != nil {
-			return 1, err
-		}
-	}
-	return 0, nil
+	ui := newTerminalUI(stdout)
+	return 0, writeString(stdout, renderEndpoints(ui, endpoints))
 }
 
 func activeRuntime(runtimeRoot string) (runtimeRecord, bool, error) {
@@ -809,49 +863,6 @@ func streamLog(path string, follow bool, stdout io.Writer) error {
 	}
 }
 
-func printGenericServices(stdout io.Writer, raw any) error {
-	services, ok := raw.([]any)
-	if !ok {
-		return formatJSON(stdout, raw)
-	}
-	for _, item := range services {
-		record, ok := item.(map[string]any)
-		if !ok {
-			if err := formatJSON(stdout, raw); err != nil {
-				return err
-			}
-			return nil
-		}
-		_, err := fmt.Fprintf(stdout, "name=%v enabled=%v family=%v endpoint=%v\n", record["name"], record["enabled"], record["family"], record["endpoint"])
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func printConfig(stdout io.Writer, cfg tinycloudconfig.Config) error {
-	lines := []string{
-		"listenHost=" + cfg.ListenHost,
-		"advertiseHost=" + cfg.AdvertiseHost,
-		"dataRoot=" + cfg.DataRoot,
-		"managementHttpPort=" + cfg.ManagementHTTP,
-		"managementHttpsPort=" + cfg.ManagementTLS,
-		"blobPort=" + cfg.Blob,
-		"queuePort=" + cfg.Queue,
-		"tablePort=" + cfg.Table,
-		"keyVaultPort=" + cfg.KeyVault,
-		"serviceBusPort=" + cfg.ServiceBus,
-		"appConfigPort=" + cfg.AppConfig,
-		"cosmosPort=" + cfg.Cosmos,
-		"dnsPort=" + cfg.DNS,
-		"eventHubsPort=" + cfg.EventHubs,
-		"services=" + joinServices(cfg.EnabledServices()),
-	}
-	_, err := fmt.Fprintln(stdout, strings.Join(lines, "\n"))
-	return err
-}
-
 func configView(cfg tinycloudconfig.Config) map[string]any {
 	return map[string]any{
 		"listenHost":          cfg.ListenHost,
@@ -872,6 +883,54 @@ func configView(cfg tinycloudconfig.Config) map[string]any {
 		"subscriptionId":      cfg.SubscriptionID,
 		"services":            cfg.EnabledServices(),
 	}
+}
+
+func configViewStringMap(cfg tinycloudconfig.Config, backend string) map[string]string {
+	return map[string]string{
+		"backend":             backend,
+		"listenHost":          cfg.ListenHost,
+		"advertiseHost":       cfg.AdvertiseHost,
+		"dataRoot":            cfg.DataRoot,
+		"managementHttpPort":  cfg.ManagementHTTP,
+		"managementHttpsPort": cfg.ManagementTLS,
+		"blobPort":            cfg.Blob,
+		"queuePort":           cfg.Queue,
+		"tablePort":           cfg.Table,
+		"keyVaultPort":        cfg.KeyVault,
+		"serviceBusPort":      cfg.ServiceBus,
+		"appConfigPort":       cfg.AppConfig,
+		"cosmosPort":          cfg.Cosmos,
+		"dnsPort":             cfg.DNS,
+		"eventHubsPort":       cfg.EventHubs,
+		"services":            joinServices(cfg.EnabledServices()),
+	}
+}
+
+func serviceRowsFromRaw(raw any) ([]serviceStatusRow, bool) {
+	services, ok := raw.([]any)
+	if !ok {
+		return nil, false
+	}
+	rows := make([]serviceStatusRow, 0, len(services))
+	for _, item := range services {
+		record, ok := item.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		enabled, _ := record["enabled"].(bool)
+		health := "disabled"
+		if enabled {
+			health = "ready"
+		}
+		rows = append(rows, serviceStatusRow{
+			Name:     fmt.Sprint(record["name"]),
+			Family:   fmt.Sprint(record["family"]),
+			Enabled:  enabled,
+			Health:   health,
+			Endpoint: fmt.Sprint(record["endpoint"]),
+		})
+	}
+	return rows, true
 }
 
 func hasJSONFlag(args []string) bool {

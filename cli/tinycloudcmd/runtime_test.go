@@ -94,9 +94,10 @@ func TestRunEServicesDisablePrintsRestartGuidanceWhenRuntimeActive(t *testing.T)
 	}
 	output := stdout.String()
 	for _, fragment := range []string{
-		"services=management,serviceBus,eventHubs",
-		"restartRequired=true",
-		"next=tinycloud restart",
+		"Service Selection Updated",
+		"services  ● management,serviceBus,eventHubs",
+		"restart   ! required",
+		"tinycloud restart",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("output missing %q in %q", fragment, output)

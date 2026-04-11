@@ -396,7 +396,7 @@ func TestRepoRootGoRunTopLevelTinyCloudPersistsServiceSelection(t *testing.T) {
 	if err := disableCmd.Run(); err != nil {
 		t.Fatalf("services disable error = %v, stderr = %q", err, disableStderr.String())
 	}
-	if !strings.Contains(disableStdout.String(), "services=management") {
+	if !strings.Contains(disableStdout.String(), "services  ● management") {
 		t.Fatalf("services disable stdout = %q, want management-only selection", disableStdout.String())
 	}
 

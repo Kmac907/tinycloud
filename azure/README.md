@@ -443,7 +443,7 @@ go run .\cmd\tinycloudd
 
 When service selection is in use, `/_admin/runtime`, `/_admin/services`, `tinycloud endpoints`, and metadata discovery now reflect the enabled service set rather than advertising listeners that were never started.
 
-`tinycloud services enable ...` and `tinycloud services disable ...` persist the selected service set under `.tinycloud-runtime\tinycloud.env` so later `tinycloud start`, `tinycloud restart`, and `tinycloud config show` calls reconnect to the same intended local runtime configuration. Because the current runtime backends do not live-toggle listeners, service changes currently require a restart, and the CLI now prints `restartRequired=true` plus `next=tinycloud restart` when you change services against an already running runtime.
+`tinycloud services enable ...` and `tinycloud services disable ...` persist the selected service set under `.tinycloud-runtime\tinycloud.env` so later `tinycloud start`, `tinycloud restart`, and `tinycloud config show` calls reconnect to the same intended local runtime configuration. Because the current runtime backends do not live-toggle listeners, service changes currently require a restart. The human-readable CLI now prints a service-selection summary plus explicit restart guidance, while `--json` output remains stable for automation.
 
 The shared product-command entry layer now lives in the repo-root `tinycloud\cli\...` packages, while the older `tinycloud\azure\cmd\...` paths remain compatibility shims over that cloud-agnostic layer and the current Azure-backed runtime adapters stay under `tinycloud\azure\runtime\...`.
 
@@ -464,7 +464,17 @@ The repo root also exposes a thin `tinycloud` wrapper for the current transition
 
 Those repo-root wrappers now build through repo-root-relative command package paths, preferring the top-level `cmd\...` entrypoints and falling back to the Azure compatibility paths under `azure\cmd\...` when needed. They cache the built binaries under `.tinycloud-runtime` and default their Go build cache to `tinycloud\.gocache`.
 
-`tinycloud start --detached` now prints a concise machine-readable summary for the active backend, including the runtime identifier, selected services, advertised endpoints, and the next useful follow-up commands. For the Docker backend, `status runtime` now also reports the active TinyCloud container identity and image.
+The human-readable terminal UX now follows a more structured LocalStack-style shape:
+
+- interactive `tinycloud start` is the only command that prints the approved TinyCloud ASCII banner
+- `tinycloud start` prints lifecycle steps, a runtime summary, endpoint table, and the next useful follow-up commands
+- `tinycloud status runtime` and `tinycloud status services` render terminal tables instead of raw key=value lines
+- `tinycloud config show` renders grouped Runtime, Ports, and Services sections
+- `tinycloud endpoints` renders a stable endpoint table
+- status icons such as `✔`, `✖`, and `!` are used in human-readable output, with color only in interactive terminals
+- `--json` output remains banner-free and machine-readable
+
+For the Docker backend, `status runtime` still reports the active TinyCloud container identity and image.
 
 TinyCloud's compatibility direction is intentionally LocalStack-style:
 

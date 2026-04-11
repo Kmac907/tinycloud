@@ -297,12 +297,34 @@ Apply middleware in this order:
 ### Terminal UX
 - The `tinycloud` CLI should present a polished terminal UX comparable in spirit to the LocalStack CLI rather than only dumping raw process output.
 - Default interactive output should be human-readable and should explain what the CLI is doing during startup, shutdown, waiting, and failure cases.
+- The approved TinyCloud brand banner may appear only on `tinycloud start`, and only in interactive human-readable terminal output.
+- The approved interactive startup banner is:
+
+  ```text
+     __  _                  __                __
+    / /_(_)___  __  _______/ /___  __  ______/ /
+   / __/ / __ \/ / / / ___/ / __ \/ / / / __  / 
+  / /_/ / / / / /_/ / /__/ / /_/ / /_/ / /_/ /  
+  \__/_/_/ /_/\__, /\___/_/\____/\__,_/\__,_/   
+             /____/
+  ```
+
+- Other commands such as `status`, `config`, `endpoints`, `stop`, `restart`, `wait`, and `logs` should not print the brand banner by default.
 - `start` in attached mode should print a concise runtime summary before streaming logs.
 - `start --detached` should print the runtime identifier, backend, selected services, exposed endpoints, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
 - `status runtime`, `status services`, `config show`, and `endpoints` should have stable human-readable output by default and support machine-readable output formats such as JSON.
 - `status services` should render clearly in the terminal, for example as a compact table with service name, enabled state, health state, endpoint, and notes.
+- Human-readable `status services` output should use a table by default.
+- Human-readable `status runtime` output should use a stable summary table or grouped key/value layout by default.
+- Human-readable `endpoints` output should use a stable table rather than an arbitrary key-order dump.
+- Human-readable `config show` output should use grouped sections such as runtime, ports, and services rather than a flat unstructured dump.
 - `logs` should support tailing/following output, and interactive log output should preserve timestamps and service/source context where practical.
 - Progress indicators, colors, and spinners should be used only when writing to an interactive terminal and should degrade cleanly in non-interactive output.
+- Human-readable lifecycle and status output may use compact status icons where helpful, such as:
+  - green `✔` for success/ready/running
+  - red `✖` for failure
+  - yellow `!` for warnings or required follow-up such as restart-required state
+- Colors must be emitted only for interactive terminal output; non-interactive output must stay readable without ANSI color support.
 - Non-interactive and machine-readable modes should avoid banners, progress animations, or mixed diagnostic chatter that would break piping and automation.
 - Error messages should be actionable: they should identify the failing service/runtime step and suggest the next command or fix.
 

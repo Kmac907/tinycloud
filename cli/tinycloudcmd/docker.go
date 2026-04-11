@@ -230,7 +230,8 @@ func dockerRunArgs(containerName, image string, cfg tinycloudconfig.Config, env 
 	return args
 }
 
-func startDockerRuntime(ctx cliContext, spec dockerRuntime, detached, jsonOutput bool, stdout io.Writer) (int, error) {
+func startDockerRuntime(ctx cliContext, spec dockerRuntime, detached, jsonOutput bool, stdout io.Writer, showBanner bool) (int, error) {
+	ui := newTerminalUI(stdout)
 	if err := os.MkdirAll(ctx.config.DataRoot, 0o755); err != nil {
 		return 1, fmt.Errorf("create TinyCloud data root: %w", err)
 	}
@@ -293,34 +294,35 @@ func startDockerRuntime(ctx cliContext, spec dockerRuntime, detached, jsonOutput
 		if err := formatJSON(stdout, summary); err != nil {
 			return 1, err
 		}
-	} else {
-		if _, err := fmt.Fprintf(stdout, "runtime=running\nruntimeId=%s\nbackend=docker\ncontainer=%s\nimage=%s\nservices=%s\n",
-			firstNonEmpty(spec.ContainerID, spec.ContainerName),
-			spec.ContainerName,
-			spec.Image,
-			joinServices(ctx.config.EnabledServices()),
-		); err != nil {
+	} else if detached {
+		output := renderDetachedStartOutput(ui, showBanner, "docker", startSummary{
+			RuntimeID:  firstNonEmpty(spec.ContainerID, spec.ContainerName),
+			Backend:    "docker",
+			Container:  spec.ContainerName,
+			Image:      spec.Image,
+			Services:   joinServices(ctx.config.EnabledServices()),
+			Management: managementValue(ctx.config),
+			Endpoints:  ctx.config.EndpointMap(),
+		}, []string{ui.success("build image"), ui.success("create container"), ui.success("wait for health")})
+		if err := writeString(stdout, output); err != nil {
 			return 1, err
-		}
-		if ctx.config.ServiceEnabled(tinycloudconfig.ServiceManagement) {
-			if _, err := fmt.Fprintf(stdout, "management=%s\n", ctx.config.ManagementHTTPURL()); err != nil {
-				return 1, err
-			}
-		}
-		for _, endpoint := range sortedEndpointLines(ctx.config.EndpointMap()) {
-			if _, err := fmt.Fprintln(stdout, endpoint); err != nil {
-				return 1, err
-			}
-		}
-		for _, next := range []string{"tinycloud status runtime", "tinycloud logs -f", "tinycloud stop"} {
-			if _, err := fmt.Fprintf(stdout, "next=%s\n", next); err != nil {
-				return 1, err
-			}
 		}
 	}
 
 	if detached {
 		return 0, nil
+	}
+	if !jsonOutput {
+		if err := writeString(stdout, renderAttachedStartPrelude(ui, showBanner, "docker", startSummary{
+			RuntimeID:  firstNonEmpty(spec.ContainerID, spec.ContainerName),
+			Backend:    "docker",
+			Container:  spec.ContainerName,
+			Image:      spec.Image,
+			Services:   joinServices(ctx.config.EnabledServices()),
+			Management: managementValue(ctx.config),
+		}, []string{ui.success("build image"), ui.success("create container"), ui.success("wait for health"), ui.progress("stream logs")})); err != nil {
+			return 1, err
+		}
 	}
 	return 0, dockerLogs(spec.ContainerName, true, stdout)
 }
