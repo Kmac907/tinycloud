@@ -355,6 +355,8 @@ These are TinyCloud-specific runtime controls, not Azure service APIs.
 ```powershell
 Invoke-RestMethod http://127.0.0.1:4566/_admin/healthz
 Invoke-RestMethod http://127.0.0.1:4566/_admin/metrics
+Invoke-RestMethod http://127.0.0.1:4566/_admin/runtime
+Invoke-RestMethod http://127.0.0.1:4566/_admin/services
 Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/snapshot
 Invoke-RestMethod -Method Post http://127.0.0.1:4566/_admin/reset
 ```
@@ -402,6 +404,24 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 ```
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
+
+The runtime now also honors `TINYCLOUD_SERVICES` so listener startup is explicit instead of implicitly always-on. The current service-selection model accepts either individual services or family aliases:
+
+- `management`
+- `storage`
+- `secrets-config`
+- `data`
+- `messaging`
+- `networking`
+
+For example, this keeps only the ARM/admin surface active while leaving the data-plane listeners disabled:
+
+```powershell
+$env:TINYCLOUD_SERVICES="management"
+go run .\cmd\tinycloudd
+```
+
+When service selection is in use, `/_admin/runtime`, `/_admin/services`, `tinycloud endpoints`, and metadata discovery now reflect the enabled service set rather than advertising listeners that were never started.
 
 The shared product-command entry layer now lives in the repo-root `tinycloud\cli\...` packages, while the older `tinycloud\azure\cmd\...` paths remain compatibility shims over that cloud-agnostic layer and the current Azure-backed runtime adapters stay under `tinycloud\azure\runtime\...`.
 
@@ -571,6 +591,7 @@ Compatibility goal:
 | `TINYCLOUD_COSMOS_PORT` | `4583` | Cosmos DB listener |
 | `TINYCLOUD_DNS_PORT` | `4584` | private DNS UDP listener |
 | `TINYCLOUD_EVENTHUBS_PORT` | `4585` | Event Hubs listener |
+| `TINYCLOUD_SERVICES` | empty = all services | comma-separated service or family selection such as `management`, `storage`, `messaging`, or `management,storage` |
 | `TINYCLOUD_TENANT_ID` | `00000000-0000-0000-0000-000000000001` | default tenant ID |
 | `TINYCLOUD_SUBSCRIPTION_ID` | `11111111-1111-1111-1111-111111111111` | default subscription ID |
 | `TINYCLOUD_TOKEN_ISSUER` | empty | optional token issuer override |

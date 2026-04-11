@@ -24,14 +24,52 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 	managementURL := h.cfg.ManagementHTTPURL()
 	managementURLWithSlash := trailingSlash(managementURL)
 	oauthURLWithSlash := trailingSlash(h.cfg.OAuthTokenURL())
+	services := map[string]string{}
+	suffixes := map[string]string{}
+	if h.cfg.ServiceEnabled(config.ServiceBlob) {
+		services["blob"] = h.cfg.BlobURL()
+		suffixes["storage"] = h.cfg.AdvertiseHost + ":" + h.cfg.Blob
+		suffixes["storageEndpoint"] = h.cfg.AdvertiseHost + ":" + h.cfg.Blob
+	}
+	if h.cfg.ServiceEnabled(config.ServiceQueue) {
+		services["queue"] = h.cfg.QueueURL()
+	}
+	if h.cfg.ServiceEnabled(config.ServiceTable) {
+		services["table"] = h.cfg.TableURL()
+	}
+	if h.cfg.ServiceEnabled(config.ServiceKeyVault) {
+		services["keyVault"] = h.cfg.KeyVaultURL()
+		suffixes["keyVault"] = h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault
+		suffixes["keyvaultDns"] = h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault
+	}
+	if h.cfg.ServiceEnabled(config.ServiceServiceBus) {
+		services["serviceBus"] = h.cfg.ServiceBusURL()
+	}
+	if h.cfg.ServiceEnabled(config.ServiceAppConfig) {
+		services["appConfig"] = h.cfg.AppConfigURL()
+		suffixes["appConfig"] = h.cfg.AdvertiseHost + ":" + h.cfg.AppConfig
+	}
+	if h.cfg.ServiceEnabled(config.ServiceCosmos) {
+		services["cosmos"] = h.cfg.CosmosURL()
+		suffixes["cosmos"] = h.cfg.AdvertiseHost + ":" + h.cfg.Cosmos
+	}
+	if h.cfg.ServiceEnabled(config.ServiceDNS) {
+		services["dns"] = h.cfg.DNSURL()
+		suffixes["dns"] = h.cfg.DNSAddress()
+	}
+	if h.cfg.ServiceEnabled(config.ServiceEventHubs) {
+		services["eventHubs"] = h.cfg.EventHubsURL()
+		suffixes["eventHubs"] = h.cfg.AdvertiseHost + ":" + h.cfg.EventHubs
+	}
+
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"name":                      "TinyCloud",
-		"profile":                   "latest",
-		"environment":               "TinyCloudLocal",
-		"tenantId":                  h.cfg.TenantID,
-		"subscriptionId":            h.cfg.SubscriptionID,
-		"activeDirectory":           oauthURLWithSlash,
-		"activeDirectoryResourceId": h.cfg.TokenAudience,
+		"name":                           "TinyCloud",
+		"profile":                        "latest",
+		"environment":                    "TinyCloudLocal",
+		"tenantId":                       h.cfg.TenantID,
+		"subscriptionId":                 h.cfg.SubscriptionID,
+		"activeDirectory":                oauthURLWithSlash,
+		"activeDirectoryResourceId":      h.cfg.TokenAudience,
 		"activeDirectoryGraphResourceId": "https://graph.windows.net/",
 		"gallery":                        "https://gallery.azure.com/",
 		"management":                     managementURLWithSlash,
@@ -65,36 +103,17 @@ func (h *Handler) endpoints(w http.ResponseWriter, _ *http.Request) {
 			"providers":                  []string{"Microsoft.Resources", "Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.Network"},
 		},
 		"endpoints": map[string]any{
-			"activeDirectory":                   oauthURLWithSlash,
-			"activeDirectoryGraphResourceId":    "https://graph.windows.net/",
-			"activeDirectoryResourceId":         h.cfg.TokenAudience,
-			"gallery":                           "https://gallery.azure.com/",
-			"management":                        managementURLWithSlash,
-			"microsoftGraphResourceId":          "https://graph.microsoft.com/",
-			"portal":                            managementURLWithSlash,
-			"resourceManager":                   managementURLWithSlash,
+			"activeDirectory":                oauthURLWithSlash,
+			"activeDirectoryGraphResourceId": "https://graph.windows.net/",
+			"activeDirectoryResourceId":      h.cfg.TokenAudience,
+			"gallery":                        "https://gallery.azure.com/",
+			"management":                     managementURLWithSlash,
+			"microsoftGraphResourceId":       "https://graph.microsoft.com/",
+			"portal":                         managementURLWithSlash,
+			"resourceManager":                managementURLWithSlash,
 		},
-		"suffixes": map[string]string{
-			"storage":   h.cfg.AdvertiseHost + ":" + h.cfg.Blob,
-			"keyVault":  h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault,
-			"appConfig": h.cfg.AdvertiseHost + ":" + h.cfg.AppConfig,
-			"cosmos":    h.cfg.AdvertiseHost + ":" + h.cfg.Cosmos,
-			"dns":       h.cfg.DNSAddress(),
-			"eventHubs": h.cfg.AdvertiseHost + ":" + h.cfg.EventHubs,
-			"keyvaultDns":     h.cfg.AdvertiseHost + ":" + h.cfg.KeyVault,
-			"storageEndpoint": h.cfg.AdvertiseHost + ":" + h.cfg.Blob,
-		},
-		"services": map[string]string{
-			"blob":       h.cfg.BlobURL(),
-			"queue":      h.cfg.QueueURL(),
-			"table":      h.cfg.TableURL(),
-			"keyVault":   h.cfg.KeyVaultURL(),
-			"serviceBus": h.cfg.ServiceBusURL(),
-			"appConfig":  h.cfg.AppConfigURL(),
-			"cosmos":     h.cfg.CosmosURL(),
-			"dns":        h.cfg.DNSURL(),
-			"eventHubs":  h.cfg.EventHubsURL(),
-		},
+		"suffixes": suffixes,
+		"services": services,
 	})
 }
 

@@ -8,22 +8,25 @@ import (
 	"strings"
 	"time"
 
+	"tinycloud/internal/config"
 	"tinycloud/internal/httpx"
 	"tinycloud/internal/state"
 )
 
 type Handler struct {
-	store    *state.Store
-	dataRoot string
+	store *state.Store
+	cfg   config.Config
 }
 
-func NewHandler(store *state.Store, dataRoot string) *Handler {
-	return &Handler{store: store, dataRoot: dataRoot}
+func NewHandler(store *state.Store, cfg config.Config) *Handler {
+	return &Handler{store: store, cfg: cfg}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /_admin/healthz", h.health)
 	mux.HandleFunc("GET /_admin/metrics", h.metrics)
+	mux.HandleFunc("GET /_admin/runtime", h.runtime)
+	mux.HandleFunc("GET /_admin/services", h.services)
 	mux.HandleFunc("POST /_admin/reset", h.reset)
 	mux.HandleFunc("POST /_admin/snapshot", h.snapshot)
 	mux.HandleFunc("POST /_admin/seed", h.seed)
@@ -50,6 +53,23 @@ func (h *Handler) metrics(w http.ResponseWriter, _ *http.Request) {
 		"resourceCount":     summary.ResourceCount,
 		"updatedAt":         summary.UpdatedAt,
 		"statePath":         summary.StatePath,
+	})
+}
+
+func (h *Handler) runtime(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"status":           "running",
+		"backend":          "process",
+		"dataRoot":         h.cfg.DataRoot,
+		"enabledServices":  h.cfg.EnabledServices(),
+		"disabledServices": h.cfg.DisabledServices(),
+		"services":         h.cfg.ServiceCatalog(),
+	})
+}
+
+func (h *Handler) services(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"services": h.cfg.ServiceCatalog(),
 	})
 }
 
@@ -93,7 +113,7 @@ func (h *Handler) seed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveDataPath(queryPath, fallback string) (string, error) {
-	root, err := filepath.Abs(h.dataRoot)
+	root, err := filepath.Abs(h.cfg.DataRoot)
 	if err != nil {
 		return "", errors.New("resolve data root")
 	}

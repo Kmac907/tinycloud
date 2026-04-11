@@ -26,17 +26,17 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 
 	var body struct {
-		TenantID       string            `json:"tenantId"`
-		SubscriptionID string            `json:"subscriptionId"`
-		Environment    string            `json:"environment"`
-		ResourceManager string           `json:"resourceManager"`
-		ActiveDirectory string           `json:"activeDirectory"`
-		Authentication map[string]string `json:"authentication"`
-		Management     map[string]string `json:"managementInfo"`
-		ResourceMgr    map[string]any    `json:"resourceManagerInfo"`
-		Endpoints      map[string]string `json:"endpoints"`
-		Suffixes       map[string]string `json:"suffixes"`
-		Services       map[string]string `json:"services"`
+		TenantID        string            `json:"tenantId"`
+		SubscriptionID  string            `json:"subscriptionId"`
+		Environment     string            `json:"environment"`
+		ResourceManager string            `json:"resourceManager"`
+		ActiveDirectory string            `json:"activeDirectory"`
+		Authentication  map[string]string `json:"authentication"`
+		Management      map[string]string `json:"managementInfo"`
+		ResourceMgr     map[string]any    `json:"resourceManagerInfo"`
+		Endpoints       map[string]string `json:"endpoints"`
+		Suffixes        map[string]string `json:"suffixes"`
+		Services        map[string]string `json:"services"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -107,5 +107,54 @@ func TestEndpointsReturnsManagementAndServiceURLs(t *testing.T) {
 	}
 	if body.ResourceMgr["resourceManagerEndpointUrl"] != cfg.ManagementHTTPURL() {
 		t.Fatalf("resourceManager.resourceManagerEndpointUrl = %v, want %q", body.ResourceMgr["resourceManagerEndpointUrl"], cfg.ManagementHTTPURL())
+	}
+}
+
+func TestEndpointsFiltersDisabledServices(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		AdvertiseHost:  "127.0.0.1",
+		ManagementHTTP: "4566",
+		ManagementTLS:  "4567",
+		Blob:           "4577",
+		Queue:          "4578",
+		Table:          "4579",
+		KeyVault:       "4580",
+		ServiceBus:     "4581",
+		AppConfig:      "4582",
+		Cosmos:         "4583",
+		DNS:            "4584",
+		EventHubs:      "4585",
+		TokenAudience:  "https://management.azure.com/",
+		Services:       config.ParseServiceSelection("management,blob"),
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(cfg).Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/endpoints", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Suffixes map[string]string `json:"suffixes"`
+		Services map[string]string `json:"services"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Services["blob"] != cfg.BlobURL() {
+		t.Fatalf("services.blob = %q, want %q", body.Services["blob"], cfg.BlobURL())
+	}
+	if _, ok := body.Services["queue"]; ok {
+		t.Fatalf("services unexpectedly included disabled queue endpoint: %#v", body.Services)
+	}
+	if _, ok := body.Suffixes["dns"]; ok {
+		t.Fatalf("suffixes unexpectedly included disabled dns endpoint: %#v", body.Suffixes)
 	}
 }

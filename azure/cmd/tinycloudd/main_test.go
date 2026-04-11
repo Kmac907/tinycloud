@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -272,6 +273,127 @@ func TestRepoRootGoRunAzureTinyClouddServesHealthEndpoint(t *testing.T) {
 		t.Skipf("repo-root azure tinycloudd go run is blocked in this environment: %s", stderr.String())
 	}
 	t.Fatalf("health check never succeeded: url=%s stdout=%q stderr=%q", healthURL, stdout.String(), stderr.String())
+}
+
+func TestRepoRootGoRunTopLevelTinyClouddHonorsServiceSelection(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("repo-root go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	httpPort := reserveTCPPort(t)
+	httpsPort := reserveTCPPort(t)
+	blobPort := reserveTCPPort(t)
+	queuePort := reserveTCPPort(t)
+	tablePort := reserveTCPPort(t)
+	keyVaultPort := reserveTCPPort(t)
+	serviceBusPort := reserveTCPPort(t)
+	appConfigPort := reserveTCPPort(t)
+	cosmosPort := reserveTCPPort(t)
+	eventHubsPort := reserveTCPPort(t)
+	dnsPort := reserveUDPPort(t)
+
+	dataRoot := t.TempDir()
+	cmd := exec.Command("go", "run", ".\\cmd\\tinycloudd")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+		"TINYCLOUD_SERVICES=management",
+		"TINYCLOUD_DATA_ROOT="+dataRoot,
+		"TINYCLOUD_LISTEN_HOST=127.0.0.1",
+		"TINYCLOUD_ADVERTISE_HOST=127.0.0.1",
+		"TINYCLOUD_MGMT_HTTP_PORT="+httpPort,
+		"TINYCLOUD_MGMT_HTTPS_PORT="+httpsPort,
+		"TINYCLOUD_BLOB_PORT="+blobPort,
+		"TINYCLOUD_QUEUE_PORT="+queuePort,
+		"TINYCLOUD_TABLE_PORT="+tablePort,
+		"TINYCLOUD_KEYVAULT_PORT="+keyVaultPort,
+		"TINYCLOUD_SERVICEBUS_PORT="+serviceBusPort,
+		"TINYCLOUD_APPCONFIG_PORT="+appConfigPort,
+		"TINYCLOUD_COSMOS_PORT="+cosmosPort,
+		"TINYCLOUD_DNS_PORT="+dnsPort,
+		"TINYCLOUD_EVENTHUBS_PORT="+eventHubsPort,
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		stopProcessListeningOnTCPPort(t, httpPort)
+		killProcessIfRunning(t, cmd.Process)
+		waitForCommandExit(t, cmd)
+	})
+
+	healthURL := fmt.Sprintf("http://127.0.0.1:%s/_admin/healthz", httpPort)
+	runtimeURL := fmt.Sprintf("http://127.0.0.1:%s/_admin/runtime", httpPort)
+	deadline := time.Now().Add(45 * time.Second)
+	healthy := false
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(healthURL)
+		if err == nil {
+			body, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr == nil && resp.StatusCode == http.StatusOK && strings.Contains(string(body), "ok") {
+				healthy = true
+				break
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+		if strings.Contains(strings.ToLower(stderr.String()), "access is denied") {
+			t.Skipf("repo-root top-level tinycloudd go run is blocked in this environment: %s", stderr.String())
+		}
+	}
+	if !healthy {
+		t.Fatalf("health check never succeeded: url=%s stdout=%q stderr=%q", healthURL, stdout.String(), stderr.String())
+	}
+
+	resp, err := http.Get(runtimeURL)
+	if err != nil {
+		t.Fatalf("http.Get(runtime) error = %v, stderr = %q", err, stderr.String())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("runtime status = %d, want %d, body=%q", resp.StatusCode, http.StatusOK, string(body))
+	}
+
+	var runtimeStatus struct {
+		Services []struct {
+			Name    string `json:"name"`
+			Enabled bool   `json:"enabled"`
+		} `json:"services"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&runtimeStatus); err != nil {
+		t.Fatalf("Decode(runtimeStatus) error = %v", err)
+	}
+
+	serviceState := map[string]bool{}
+	for _, service := range runtimeStatus.Services {
+		serviceState[service.Name] = service.Enabled
+	}
+	if !serviceState["management"] {
+		t.Fatalf("management service was not enabled: %#v", serviceState)
+	}
+	if serviceState["blob"] || serviceState["queue"] || serviceState["serviceBus"] {
+		t.Fatalf("unexpected enabled services in management-only runtime: %#v", serviceState)
+	}
+
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+blobPort, 500*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		t.Fatalf("blob listener unexpectedly accepted a connection on port %s", blobPort)
+	}
 }
 
 func reserveTCPPort(t *testing.T) string {
