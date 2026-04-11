@@ -266,6 +266,8 @@ Apply middleware in this order:
 - `tinyaz` wraps standard Azure CLI usage with TinyCloud compatibility behavior, should invoke the real `az` binary, and should preserve normal `az` argument passing as closely as practical.
 - Both wrappers should pass through stdout, stderr, and exit codes as closely as practical.
 - Compatibility logic should live in the wrapper layer when possible so user Terraform and Azure CLI workflows stay close to their normal cloud equivalents.
+- The target compatibility model for both `tinyterraform` and `tinyaz` is Model 2 where TinyCloud officially supports the command/resource family: the wrapper should classify the command family, resolve the correct TinyCloud endpoint or service endpoint, and preserve the normal upstream command shape instead of requiring users to fall back to manual endpoint helpers for supported flows.
+- Parity should be defined against an explicitly documented and verified supported subset, not as a blanket promise that every Terraform or Azure CLI command will work unchanged.
 
 ### CLI product structure
 - The LocalStack analogue should be:
@@ -277,7 +279,7 @@ Apply middleware in this order:
 - `tinycloud start` should be able to launch the runtime through the supported backend for the environment rather than assuming only a direct foreground Go server process.
 - The default local-developer product flow should be container-oriented, with the CLI responsible for initializing and managing the TinyCloud container/runtime in the same way the LocalStack CLI manages its local runtime.
 - The CLI should keep enough runtime metadata to reconnect later for `status`, `logs`, `wait`, `stop`, and `restart` without requiring the user to manually pass process IDs, ports, or container names.
-- `tinyterraform` and `tinyaz` should remain thin compatibility wrappers around real upstream tools, not bespoke reimplementations of Terraform or Azure CLI.
+- `tinyterraform` and `tinyaz` should remain compatibility wrappers around real upstream tools, not bespoke reimplementations of Terraform or Azure CLI, but they may still need command-family classification and endpoint routing for the officially supported subset.
 
 ### Runtime and service model
 - TinyCloud service activation should be an explicit CLI/config concern rather than an accidental byproduct of whatever listeners happen to be compiled into the binary.
@@ -431,9 +433,9 @@ This should happen in this order:
 2. migrate the main product CLI entrypoints from the Azure tree to `tinycloud\cmd`
 3. introduce shared cloud-agnostic CLI/runtime support outside provider-specific trees
 4. complete the first-class `tinycloud` CLI as the LocalStack-style main product command
-5. keep `tinyterraform` working through the migration
-6. implement standalone `tinyaz`
-7. then continue with wrapper contract tightening and broader workflow verification
+5. promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
+6. implement standalone `tinyaz` with the same Model 2 supported-subset direction
+7. then define and verify the supported wrapper contract instead of promising blanket parity
 
 ### CLI migration plan
 
@@ -476,8 +478,8 @@ The roadmap should follow the same practical pattern used by successful local cl
 1. Promote the effective repo/module/build root from `tinycloud\azure` to `tinycloud`
 2. Move the main CLI and wrapper entrypoints to `tinycloud\cmd`
 3. Complete the cohesive `tinycloud` CLI product surface
-4. Keep `tinyterraform` parity during and after the migration
-5. Implement standalone `tinyaz`
+4. Promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
+5. Implement standalone `tinyaz` with the same Model 2 supported-subset direction
 
 #### Tier 1: complete the core application workflow set
 
