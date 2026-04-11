@@ -240,6 +240,8 @@ Apply middleware in this order:
 ### CLI behavior
 - `tinycloud` should be the main cohesive product CLI, analogous to the `localstack` CLI.
 - `start` launches TinyCloud locally and should support both attached and detached runtime operation.
+- `start` should default to detached startup, print the startup summary and next commands, and return control to the shell.
+- `start --attached` should be the explicit foreground/log-streaming mode.
 - `start` should be able to initialize the supported TinyCloud runtime backend for the environment, including the primary container-based local workflow.
 - `start` should support LocalStack-style runtime bootstrap flags for environment variables, port publishing, volume mounts, and backend/network selection where relevant.
 - `stop` stops the active TinyCloud runtime started by the CLI.
@@ -310,8 +312,8 @@ Apply middleware in this order:
   ```
 
 - Other commands such as `status`, `config`, `endpoints`, `stop`, `restart`, `wait`, and `logs` should not print the brand banner by default.
-- `start` in attached mode should print a concise runtime summary before streaming logs.
-- `start --detached` should print the runtime identifier, backend, selected services, exposed endpoints, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
+- `start` should default to detached mode and should print the runtime identifier, backend, selected services, exposed endpoints, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
+- `start --attached` should print a concise runtime summary before streaming logs.
 - `status runtime`, `status services`, `config show`, and `endpoints` should have stable human-readable output by default and support machine-readable output formats such as JSON.
 - `status services` should render clearly in the terminal, for example as a compact table with service name, enabled state, health state, endpoint, and notes.
 - Human-readable `status services` output should use a table by default.

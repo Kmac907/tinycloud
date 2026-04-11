@@ -387,11 +387,11 @@ From `tinycloud\`, the built-in CLI now lives at the cloud-agnostic top-level co
 $env:TINYCLOUD_DATA_ROOT="$PWD\data"
 
 go run .\cmd\tinycloud init
-go run .\cmd\tinycloud start --detached
+go run .\cmd\tinycloud start
 go run .\cmd\tinycloud wait --timeout 30s
 go run .\cmd\tinycloud status runtime --json
 go run .\cmd\tinycloud status services --json
-go run .\cmd\tinycloud logs
+go run .\cmd\tinycloud logs -f
 go run .\cmd\tinycloud config show --json
 go run .\cmd\tinycloud services list --json
 go run .\cmd\tinycloud endpoints
@@ -404,7 +404,7 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 
 ```powershell
 .\scripts\tinycloud.ps1 init
-.\scripts\tinycloud.ps1 start --detached
+.\scripts\tinycloud.ps1 start
 .\scripts\tinycloud.ps1 status runtime
 .\scripts\tinycloud.ps1 status services
 .\scripts\tinycloud.ps1 env pulumi
@@ -415,6 +415,7 @@ The built-in `tinycloud` CLI is not an Azure CLI replacement. It is now the loca
 
 - Docker is the default backend when Docker is available locally. `tinycloud start` auto-builds the repo-root `tinycloud-azure` image if needed and then manages the active TinyCloud container for `status`, `logs`, `wait`, `restart`, and `stop`.
 - `--backend process` keeps the managed local `tinycloudd` binary workflow available when you want to stay outside Docker.
+- `tinycloud start` now defaults to detached startup so it returns control to the shell; use `tinycloud start --attached` when you want the foreground log-streaming path instead.
 
 `tinycloud start` now also accepts LocalStack-style bootstrap inputs for the current local runtime workflow:
 
@@ -467,7 +468,8 @@ Those repo-root wrappers now build through repo-root-relative command package pa
 The human-readable terminal UX now follows a more structured LocalStack-style shape:
 
 - interactive `tinycloud start` is the only command that prints the approved TinyCloud ASCII banner
-- `tinycloud start` prints lifecycle steps, a runtime summary, endpoint table, and the next useful follow-up commands
+- default `tinycloud start` prints lifecycle steps, a runtime summary, endpoint table, and the next useful follow-up commands, then returns control to the shell
+- `tinycloud start --attached` is the explicit foreground mode when you want startup output followed by live logs
 - `tinycloud status runtime` and `tinycloud status services` render terminal tables instead of raw key=value lines
 - `tinycloud config show` renders grouped Runtime, Ports, and Services sections
 - `tinycloud endpoints` renders a stable endpoint table
@@ -649,7 +651,7 @@ Compatibility goal:
 ```powershell
 $env:TINYCLOUD_DATA_ROOT="$PWD\data"
 go run .\cmd\tinycloud init
-go run .\cmd\tinycloud start --detached
+go run .\cmd\tinycloud start
 go run .\cmd\tinycloud wait --timeout 30s
 ```
 
@@ -664,7 +666,7 @@ From `tinycloud\`, the same control/runtime entrypoints are also available throu
 
 ```powershell
 $env:TINYCLOUD_DATA_ROOT="$PWD\azure\data"
-.\scripts\tinycloud.ps1 start --detached
+.\scripts\tinycloud.ps1 start
 .\scripts\tinycloudd.ps1
 ```
 

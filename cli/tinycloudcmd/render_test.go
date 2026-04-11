@@ -34,6 +34,30 @@ func TestRenderDetachedStartOutputIncludesBannerOnlyWhenRequested(t *testing.T) 
 	}
 }
 
+func TestParseStartOptionsDefaultsToDetached(t *testing.T) {
+	t.Parallel()
+
+	options, err := parseStartOptions(nil)
+	if err != nil {
+		t.Fatalf("parseStartOptions() error = %v", err)
+	}
+	if !options.detached {
+		t.Fatal("parseStartOptions() detached = false, want true by default")
+	}
+}
+
+func TestParseStartOptionsAttachedOverridesDetachedDefault(t *testing.T) {
+	t.Parallel()
+
+	options, err := parseStartOptions([]string{"--attached"})
+	if err != nil {
+		t.Fatalf("parseStartOptions(--attached) error = %v", err)
+	}
+	if options.detached {
+		t.Fatal("parseStartOptions(--attached) detached = true, want false")
+	}
+}
+
 func TestRenderServicesStatusUsesTableLayout(t *testing.T) {
 	t.Parallel()
 

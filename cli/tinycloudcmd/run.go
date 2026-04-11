@@ -119,7 +119,7 @@ func loadCLIContext(getwd func() (string, error)) (cliContext, error) {
 }
 
 func parseStartOptions(args []string) (startOptions, error) {
-	options := startOptions{}
+	options := startOptions{detached: true}
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
 		case arg == "--detached" || arg == "-d":
@@ -1000,7 +1000,7 @@ func sortedEndpointLines(endpoints map[string]string) []string {
 
 func PrintUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `tinycloud commands:
-  start [--detached] [--services <list>] [--json]
+  start [--attached|--detached] [--services <list>] [--json]
   stop
   restart [--detached|--attached]
   wait [--timeout <duration>]
