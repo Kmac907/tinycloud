@@ -81,9 +81,9 @@ func TestRenderServicesStatusUsesTableLayout(t *testing.T) {
 	for _, fragment := range []string{
 		"Service Status   1 enabled   1 disabled   0 failed",
 		"SERVICE",
-		"STATUS",
+		"FAMILY",
 		"management",
-		"✓ ready",
+		"✓ yes",
 		"○ disabled",
 	} {
 		if !strings.Contains(output, fragment) {

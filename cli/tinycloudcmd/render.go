@@ -173,14 +173,17 @@ func renderServicesStatus(ui terminalUI, rows []serviceStatusRow) string {
 		}
 		tableRows = append(tableRows, []string{
 			row.Name,
-			renderServiceStatus(ui, row),
+			row.Family,
+			renderEnabled(ui, row.Enabled),
+			renderHealth(ui, row.Health),
+			row.Endpoint,
 		})
 	}
 	return joinLines(
 		fmt.Sprintf("Service Status   %d enabled   %d disabled   %d failed", enabledCount, disabledCount, failedCount),
 		"",
 		strings.TrimRight(ui.renderTable(table{
-			headers: []string{"SERVICE", "STATUS"},
+			headers: []string{"SERVICE", "FAMILY", "ENABLED", "HEALTH", "ENDPOINT"},
 			rows:    tableRows,
 		}), "\n"),
 	)
@@ -325,11 +328,4 @@ func renderEnabled(ui terminalUI, enabled bool) string {
 		return ui.success("yes")
 	}
 	return ui.inactive("no")
-}
-
-func renderServiceStatus(ui terminalUI, row serviceStatusRow) string {
-	if !row.Enabled {
-		return ui.inactive("disabled")
-	}
-	return renderHealth(ui, row.Health)
 }
