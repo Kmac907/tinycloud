@@ -336,8 +336,12 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer, showBanne
 	cmd := exec.Command(binaryPath)
 	cmd.Dir = runCtx.repoRoot
 	cmd.Env = inheritEnvWithOverrides(runCtx.env)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	logWriter := stdout
+	if !options.jsonOutput {
+		logWriter = newStructuredLogWriter(stdout, ui)
+	}
+	cmd.Stdout = logWriter
+	cmd.Stderr = logWriter
 
 	if options.jsonOutput {
 		if err := formatJSON(stdout, map[string]any{
@@ -368,11 +372,17 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer, showBanne
 	defer removeRuntimeRecord(runCtx.runtimeRoot)
 
 	if err := cmd.Wait(); err != nil {
+		if flushErr := flushLogWriter(logWriter); flushErr != nil {
+			return 1, flushErr
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode(), nil
 		}
 		return 1, fmt.Errorf("run tinycloudd: %w", err)
+	}
+	if err := flushLogWriter(logWriter); err != nil {
+		return 1, err
 	}
 	return 0, nil
 }
@@ -841,6 +851,7 @@ func activeRuntime(runtimeRoot string) (runtimeRecord, bool, error) {
 
 func streamLog(path string, follow bool, stdout io.Writer) error {
 	var offset int64
+	logWriter := newStructuredLogWriter(stdout, newTerminalUI(stdout))
 	for {
 		file, err := os.Open(path)
 		if err != nil {
@@ -850,14 +861,14 @@ func streamLog(path string, follow bool, stdout io.Writer) error {
 			file.Close()
 			return err
 		}
-		written, err := io.Copy(stdout, file)
+		written, err := io.Copy(logWriter, file)
 		file.Close()
 		if err != nil {
 			return err
 		}
 		offset += written
 		if !follow {
-			return nil
+			return flushLogWriter(logWriter)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

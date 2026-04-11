@@ -319,6 +319,7 @@ Apply middleware in this order:
 - Human-readable `endpoints` output should use a stable table rather than an arbitrary key-order dump.
 - Human-readable `config show` output should use grouped sections such as runtime, ports, and services rather than a flat unstructured dump.
 - `logs` should support tailing/following output, and interactive log output should preserve timestamps and service/source context where practical.
+- when the runtime emits known structured TinyCloud JSON logs, interactive log output should present them as readable terminal sections while preserving raw fallback for unknown lines and non-interactive output
 - Progress indicators, colors, and spinners should be used only when writing to an interactive terminal and should degrade cleanly in non-interactive output.
 - Human-readable lifecycle and status output may use compact status icons where helpful, such as:
   - green `✓` for success/ready/running

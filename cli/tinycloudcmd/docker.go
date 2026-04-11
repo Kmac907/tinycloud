@@ -130,9 +130,16 @@ func dockerLogs(name string, follow bool, stdout io.Writer) error {
 	}
 	args = append(args, name)
 	cmd := exec.Command("docker", args...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stdout
-	return cmd.Run()
+	logWriter := newStructuredLogWriter(stdout, newTerminalUI(stdout))
+	cmd.Stdout = logWriter
+	cmd.Stderr = logWriter
+	if err := cmd.Run(); err != nil {
+		if flushErr := flushLogWriter(logWriter); flushErr != nil {
+			return flushErr
+		}
+		return err
+	}
+	return flushLogWriter(logWriter)
 }
 
 func defaultDockerPublishes(cfg tinycloudconfig.Config) []string {

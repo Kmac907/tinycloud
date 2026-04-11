@@ -471,6 +471,7 @@ The human-readable terminal UX now follows a more structured LocalStack-style sh
 - `tinycloud status runtime` and `tinycloud status services` render terminal tables instead of raw key=value lines
 - `tinycloud config show` renders grouped Runtime, Ports, and Services sections
 - `tinycloud endpoints` renders a stable endpoint table
+- interactive `tinycloud start` and `tinycloud logs -f` now render known structured TinyCloud runtime/request log lines as terminal sections instead of raw JSON, while unknown lines still fall back to raw output
 - status icons such as `✓`, `✗`, and `‼` are used in human-readable output, with color only on the icon glyph itself in interactive terminals
 - `--json` output remains banner-free and machine-readable
 
