@@ -331,3 +331,44 @@ func TestRepoRootGoRunTinyCloudEnvPulumi(t *testing.T) {
 		}
 	}
 }
+
+func TestRepoRootGoRunTopLevelTinyCloudEnvPulumi(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("repo-root go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	cmd := exec.Command("go", "run", ".\\cmd\\tinycloud", "env", "pulumi")
+	cmd.Dir = repoRoot
+	cmd.Env = append(
+		os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"ARM_ENDPOINT=",
+		"ARM_METADATA_HOST=",
+		"ARM_SUBSCRIPTION_ID=",
+		"ARM_TENANT_ID=",
+		"AZURE_STORAGE_ENDPOINT=",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("output missing %q in %q", fragment, output)
+		}
+	}
+}

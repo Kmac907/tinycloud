@@ -1,6 +1,6 @@
 # Pulumi Environment Example
 
-Start TinyCloud and print the local environment values:
+From `tinycloud\`, start TinyCloud and print the local environment values through the top-level command entrypoint:
 
 ```powershell
 go run .\cmd\tinycloud env pulumi

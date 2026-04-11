@@ -379,7 +379,7 @@ Invoke-RestMethod "http://127.0.0.1:4585/namespaces/local-streaming/hubs/orders/
 
 ## CLI Integration
 
-The built-in CLI manages the local runtime and prints environment settings for external tools:
+From `tinycloud\`, the built-in CLI now lives at the cloud-agnostic top-level command path and manages the local runtime plus environment settings for external tools:
 
 ```powershell
 $env:TINYCLOUD_DATA_ROOT="$PWD\data"
@@ -403,7 +403,7 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
 
-During the command-layer migration, the repo root now contains a Go workspace file, so Go commands can also be run from `tinycloud\` while the implementation still lives under `tinycloud\azure`:
+The repo root also keeps the older Azure-backed command paths working during the transition:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"

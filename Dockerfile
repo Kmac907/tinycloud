@@ -1,12 +1,13 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-ARG TINYCLOUD_CONTEXT_ROOT=azure
-
-COPY ${TINYCLOUD_CONTEXT_ROOT}/go.mod ./go.mod
-COPY ${TINYCLOUD_CONTEXT_ROOT}/go.sum ./go.sum
-COPY ${TINYCLOUD_CONTEXT_ROOT}/cmd ./cmd
-COPY ${TINYCLOUD_CONTEXT_ROOT}/internal ./internal
+COPY go.mod ./go.mod
+COPY go.sum ./go.sum
+COPY cmd ./cmd
+COPY azure/go.mod ./azure/go.mod
+COPY azure/go.sum ./azure/go.sum
+COPY azure/cli ./azure/cli
+COPY azure/internal ./azure/internal
 
 RUN go build -o /out/tinycloud ./cmd/tinycloud && \
     go build -o /out/tinycloudd ./cmd/tinycloudd
