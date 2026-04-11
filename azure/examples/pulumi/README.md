@@ -6,7 +6,7 @@ From `tinycloud\`, start TinyCloud and print the local environment values throug
 go run .\cmd\tinycloud env pulumi
 ```
 
-During the repo-root migration, the same environment output is also available from `tinycloud\`:
+The repo-root wrapper also exposes the same environment output from `tinycloud\`:
 
 ```powershell
 .\scripts\tinycloud.ps1 env pulumi

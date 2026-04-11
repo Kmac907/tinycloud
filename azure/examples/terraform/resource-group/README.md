@@ -9,7 +9,7 @@ go run ..\..\..\cmd\tinyterraform -- apply -auto-approve
 go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
 ```
 
-The older Azure-backed launcher path still works during the transition:
+The older Azure-backed launcher path still works as a compatibility path:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
@@ -43,16 +43,16 @@ Prerequisites:
 `tinyterraform.ps1 init` also resets the TinyCloud runtime state before Terraform init so stale emulator resources do not survive failed local applies.
 That `init` path stays local and does not need the HTTPS cert-trust or hosts-file routing that `apply` and `destroy` still need.
 
-For the planned top-level `tinycloud\cmd` migration, the current wrapper layer also supports:
+For compatibility and repo-layout variation handling, the current wrapper layer also supports:
 
 - `TINYCLOUD_SOURCE_ROOT` to point the wrapper at the TinyCloud source tree it should build
 - `TINYTERRAFORM_SCRIPT` to point the Go launcher at an explicit wrapper-script path
 - `TINYTERRAFORM_SCRIPT_RELATIVE_PATH` to point the Go launcher at the wrapper script relative to `TINYCLOUD_SOURCE_ROOT`
-- `TINYCLOUD_MAIN_PACKAGE` to point the wrapper at the TinyCloud Go package it should build during the transition; the wrapper still accepts the older `tinycloud/cmd/tinycloud` override form for compatibility
-- `TINYCLOUD_GO_WORKDIR` to point the wrapper at the Go workspace/build directory to use during the transition
+- `TINYCLOUD_MAIN_PACKAGE` to point the wrapper at the TinyCloud Go package it should build for compatibility or alternate layouts; the wrapper still accepts the older `tinycloud/cmd/tinycloud` override form for compatibility
+- `TINYCLOUD_GO_WORKDIR` to point the wrapper at the Go workspace/build directory to use for compatibility or alternate layouts
 - `TINYTERRAFORM_RUNTIME_ROOT` to isolate the wrapper runtime directory when you need multiple migration-style runs side by side
 
 If the wrapper is temporarily relocated under a provider path like `azure\scripts`, it now searches upward for `cmd\tinycloud\main.go` automatically, so `TINYCLOUD_SOURCE_ROOT` is only needed when auto-discovery is not enough.
-The repo-root wrapper uses those same overrides to route the top-level `.\scripts\tinyterraform.ps1` path through the current Azure source tree while the command-layer migration is still in progress.
+The repo-root wrapper uses those same overrides to route the top-level `.\scripts\tinyterraform.ps1` path through the current Azure-backed implementation when needed.
 
 The long-term direction is to keep this flow as close as practical to normal `terraform` and `az` usage so users can rely on familiar command-line habits inside the local emulator environment.
