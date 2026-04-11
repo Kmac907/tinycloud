@@ -486,8 +486,10 @@ TinyCloud's compatibility direction is intentionally LocalStack-style:
 - `tinyaz` is the planned TinyCloud analogue to `azlocal`
 - users should be able to keep using normal Terraform and Azure CLI habits with minimal TinyCloud-specific setup
 - both wrappers should invoke the real upstream binaries under the hood rather than reimplementing their command sets
+- for officially supported command and resource families, both wrappers target a Model 2 shape: classify the command family, resolve the correct TinyCloud management or service endpoint, and preserve the normal upstream command structure
+- parity is defined against an explicitly documented and verified supported subset, not as a blanket promise that every Terraform or Azure CLI command will work unchanged
 
-The goal is to put compatibility behavior in thin wrappers around familiar tools rather than forcing users onto a custom control surface.
+The goal is to put compatibility behavior in wrappers around familiar tools rather than forcing users onto a custom control surface, while still keeping the compatibility claim bounded to the supported subset TinyCloud actually verifies.
 
 ## Terraform Example
 
@@ -499,7 +501,8 @@ Current status:
 - Terraform is required locally; TinyCloud does not bundle it
 - the supported local flow is the wrapper script, not a raw `terraform apply` against `azurerm`
 - the wrapper has been manually verified end to end for `init`, `apply`, and `destroy` against `azurerm_resource_group`
-- the wrapper should be treated as the first step toward a first-class `tinyterraform` command that mirrors `tflocal` behavior as closely as Azure tooling allows
+- the current officially supported Terraform compatibility subset is still narrow: the verified `azurerm_resource_group` example plus non-runtime passthrough commands such as `help`, `version`, `login`, `logout`, `console`, and subcommand help
+- the roadmap direction is to keep promoting `tinyterraform` toward a first-class Model 2 compatibility command for the officially supported subset, expanding that verified subset over time instead of claiming blanket `azurerm` parity
 
 The provider shape currently used in the repo is:
 
@@ -582,7 +585,7 @@ $env:GOCACHE="$PWD\.gocache"
 .\scripts\tinyterraform.ps1 destroy -auto-approve
 ```
 
-`cmd/tinyterraform` is the current first-class launcher entrypoint. On Windows it locates and invokes `scripts/tinyterraform.ps1`, which in turn invokes the real `terraform` binary, starts TinyCloud when needed, injects Azure CLI compatibility for auth, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is embedded in that wrapper, but the intended direction is a standalone `tinyaz` helper analogous to `azlocal`. Commands that actually need TinyCloud runtime routing still require an elevated PowerShell session today; pure local passthrough commands like `terraform help`, `terraform version`, `terraform login`, `terraform logout`, `terraform console`, and subcommand help requests like `terraform apply -help` do not. Terraform global flags such as `-chdir=...` are preserved by the launcher and wrapper so normal CLI invocation patterns continue to work, including PowerShell invocation. Both entrypoints also honor `TERRAFORM_EXE` when you need to point TinyCloud at a specific Terraform binary, and the wrapper preserves Terraform stdout for machine-readable commands like `version -json`.
+`cmd/tinyterraform` is the current first-class launcher entrypoint. On Windows it locates and invokes `scripts/tinyterraform.ps1`, which in turn invokes the real `terraform` binary, starts TinyCloud when needed, injects the current Azure CLI compatibility required for supported Terraform flows, temporarily maps `management.azure.com` to the local TinyCloud HTTPS listener, and removes the mapping on exit. The current Azure CLI compatibility layer is still embedded in that wrapper; the roadmap direction is to split that into a standalone `tinyaz` helper while keeping the same Model 2 supported-subset goal for both wrappers. Commands that actually need TinyCloud runtime routing still require an elevated PowerShell session today; pure local passthrough commands like `terraform help`, `terraform version`, `terraform login`, `terraform logout`, `terraform console`, and subcommand help requests like `terraform apply -help` do not. Terraform global flags such as `-chdir=...` are preserved by the launcher and wrapper so normal CLI invocation patterns continue to work, including PowerShell invocation. Both entrypoints also honor `TERRAFORM_EXE` when you need to point TinyCloud at a specific Terraform binary, and the wrapper preserves Terraform stdout for machine-readable commands like `version -json`.
 
 `tinyterraform.ps1 init` also resets the TinyCloud runtime state before running Terraform init. That keeps emulator state and Terraform state aligned after failed local applies.
 `tinyterraform init` uses that local reset/bootstrap path but does not need the HTTPS cert-trust and hosts-file routing that `apply` and `destroy` still require.
@@ -608,6 +611,8 @@ Compatibility goal:
 - invoke real `terraform` and `az` binaries under the hood
 - pass through stdout, stderr, and exit codes as closely as practical
 - keep TinyCloud-specific wiring in the wrapper layer instead of in user Terraform code
+- for officially supported command/resource families, preserve normal upstream command structure and use wrapper-side endpoint routing rather than requiring manual helper flows
+- expand parity through a documented and verified supported subset rather than promising every upstream Terraform or Azure CLI workflow unchanged
 
 ## Configuration
 
@@ -735,8 +740,8 @@ This is the practical comparison for current use, not a marketing claim. The poi
 
 - Deployment template execution is intentionally narrow; only a small static subset is implemented today
 - Private DNS uses UDP on a non-default port (`4584`) by default, so standard system DNS tools that assume port `53` need an explicit custom resolver configuration
-- Not a full Azure CLI or full SDK parity environment
-- `tinyterraform` is still a script wrapper rather than a polished first-class command with parity-focused UX on every platform
+- Not a full Azure CLI, Terraform-provider, or SDK parity environment; compatibility is still defined by a narrow verified supported subset
+- `tinyterraform` still relies on a Windows-specific wrapper beneath the top-level launcher for runtime-routed flows
 - No standalone `tinyaz` helper yet; the Azure CLI compatibility layer currently lives inside `tinyterraform.ps1`
 
 ## Examples
