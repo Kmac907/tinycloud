@@ -9,7 +9,7 @@ go run ..\..\..\cmd\tinyterraform -- apply -auto-approve
 go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
 ```
 
-During the repo-root migration, you can also launch the same wrapper from `tinycloud\`:
+The older Azure-backed launcher path still works during the transition:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
@@ -48,7 +48,7 @@ For the planned top-level `tinycloud\cmd` migration, the current wrapper layer a
 - `TINYCLOUD_SOURCE_ROOT` to point the wrapper at the TinyCloud source tree it should build
 - `TINYTERRAFORM_SCRIPT` to point the Go launcher at an explicit wrapper-script path
 - `TINYTERRAFORM_SCRIPT_RELATIVE_PATH` to point the Go launcher at the wrapper script relative to `TINYCLOUD_SOURCE_ROOT`
-- `TINYCLOUD_MAIN_PACKAGE` to point the wrapper at the TinyCloud Go package it should build during the transition
+- `TINYCLOUD_MAIN_PACKAGE` to point the wrapper at the TinyCloud Go package it should build during the transition; the wrapper still accepts the older `tinycloud/cmd/tinycloud` override form for compatibility
 - `TINYCLOUD_GO_WORKDIR` to point the wrapper at the Go workspace/build directory to use during the transition
 - `TINYTERRAFORM_RUNTIME_ROOT` to isolate the wrapper runtime directory when you need multiple migration-style runs side by side
 

@@ -9,6 +9,25 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+function Resolve-ExplicitTinyCloudMainPackage {
+    param([string]$PackageValue)
+
+    $normalized = $PackageValue.Replace("/", "\")
+    switch ($normalized.ToLowerInvariant()) {
+        "tinycloud\cmd\tinycloud" {
+            $topLevelPackage = Join-Path $repoRoot "cmd\tinycloud"
+            if (Test-Path (Join-Path $topLevelPackage "main.go")) {
+                return $topLevelPackage
+            }
+
+            return (Join-Path $repoRoot "azure\cmd\tinycloud")
+        }
+        default {
+            return $PackageValue
+        }
+    }
+}
+
 function Resolve-TinyCloudGoWorkdir {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_GO_WORKDIR)) {
         return (Resolve-Path -LiteralPath $env:TINYCLOUD_GO_WORKDIR).Path
@@ -27,7 +46,7 @@ function Resolve-TinyCloudRuntimeRoot {
 
 function Resolve-TinyCloudMainPackage {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_MAIN_PACKAGE)) {
-        return $env:TINYCLOUD_MAIN_PACKAGE
+        return (Resolve-ExplicitTinyCloudMainPackage -PackageValue $env:TINYCLOUD_MAIN_PACKAGE)
     }
 
     $topLevelPackage = Join-Path $repoRoot "cmd\tinycloud\main.go"

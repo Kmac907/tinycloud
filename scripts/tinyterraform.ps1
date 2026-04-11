@@ -13,6 +13,25 @@ if (-not $TerraformArgs -or $TerraformArgs.Count -eq 0) {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+function Resolve-ExplicitTinyCloudMainPackage {
+    param([string]$PackageValue)
+
+    $normalized = $PackageValue.Replace("/", "\")
+    switch ($normalized.ToLowerInvariant()) {
+        "tinycloud\cmd\tinycloud" {
+            $topLevelPackage = Join-Path $repoRoot "cmd\tinycloud"
+            if (Test-Path (Join-Path $topLevelPackage "main.go")) {
+                return $topLevelPackage
+            }
+
+            return (Join-Path $repoRoot "azure\cmd\tinycloud")
+        }
+        default {
+            return $PackageValue
+        }
+    }
+}
+
 function Find-UpwardPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -74,7 +93,7 @@ function Resolve-TinyCloudSourceRoot {
 
 function Resolve-TinyCloudMainPackage {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_MAIN_PACKAGE)) {
-        return $env:TINYCLOUD_MAIN_PACKAGE
+        return (Resolve-ExplicitTinyCloudMainPackage -PackageValue $env:TINYCLOUD_MAIN_PACKAGE)
     }
 
     $topLevelPackage = Join-Path $repoRoot "cmd\tinycloud\main.go"
