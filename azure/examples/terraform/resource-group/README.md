@@ -9,18 +9,18 @@ go run ..\..\..\cmd\tinyterraform -- apply -auto-approve
 go run ..\..\..\cmd\tinyterraform -- destroy -auto-approve
 ```
 
-The older Azure-backed launcher path still works as a compatibility path:
+The older Azure-backed launcher path still works as a compatibility path from this example directory:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
-go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init
+go run ..\..\..\cmd\tinyterraform -- -chdir=. init
 ```
 
-The repo root also exposes the wrapper script directly:
+The repo-root wrapper script is also reachable directly from this example directory:
 
 ```powershell
 $env:GOCACHE="$PWD\.gocache"
-.\scripts\tinyterraform.ps1 -chdir=.\azure\examples\terraform\resource-group init
+..\..\..\scripts\tinyterraform.ps1 -chdir=. init
 ```
 
 Equivalent direct wrapper flow:
