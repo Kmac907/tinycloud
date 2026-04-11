@@ -403,6 +403,8 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime helper plus endpoint/config printer.
 
+The shared product-command entry layer now lives in the repo-root `tinycloud\cli\...` packages, while the older `tinycloud\azure\cmd\...` paths remain compatibility shims over that cloud-agnostic layer and the current Azure-backed runtime adapters stay under `tinycloud\azure\runtime\...`.
+
 The repo root also keeps the older Azure-backed command paths working as compatibility paths:
 
 ```powershell

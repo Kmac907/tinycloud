@@ -1,6 +1,6 @@
 package main
 
-import "tinycloud/cli/tinyterraformcmd"
+import "tinycloud-root/cli/tinyterraformcmd"
 
 func main() {
 	tinyterraformcmd.Main()

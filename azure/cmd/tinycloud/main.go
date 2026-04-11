@@ -3,9 +3,10 @@ package main
 import (
 	"io"
 
-	"tinycloud/cli/tinycloudcmd"
+	"tinycloud-root/cli/tinycloudcmd"
 	"tinycloud/internal/config"
 	"tinycloud/internal/state"
+	"tinycloud/runtime/tinycloudazurecmd"
 )
 
 func main() {
@@ -13,21 +14,21 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
-	return tinycloudcmd.Run(args, stdout, stderr)
+	return tinycloudazurecmd.Run(args, stdout, stderr)
 }
 
 func runSnapshot(args []string, store *state.Store, cfg config.Config, stdout io.Writer) error {
-	return tinycloudcmd.RunSnapshot(args, store, cfg, stdout)
+	return tinycloudazurecmd.RunSnapshot(args, store, cfg, stdout)
 }
 
 func runSeed(args []string, store *state.Store) error {
-	return tinycloudcmd.RunSeed(args, store)
+	return tinycloudazurecmd.RunSeed(args, store)
 }
 
 func runEnv(args []string, cfg config.Config, stdout io.Writer) error {
-	return tinycloudcmd.RunEnv(args, cfg, stdout)
+	return tinycloudazurecmd.RunEnv(args, cfg, stdout)
 }
 
 func printUsage(w io.Writer) {
-	tinycloudcmd.PrintUsage(w)
+	tinycloudazurecmd.PrintUsage(w)
 }

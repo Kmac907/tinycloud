@@ -1,6 +1,6 @@
 package main
 
-import "tinycloud/cli/tinyclouddcmd"
+import "tinycloud-root/cli/tinyclouddcmd"
 
 func main() {
 	tinyclouddcmd.Main()

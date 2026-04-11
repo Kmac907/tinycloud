@@ -3,7 +3,7 @@ package main
 import (
 	"io"
 
-	"tinycloud/cli/tinyterraformcmd"
+	"tinycloud-root/cli/tinyterraformcmd"
 )
 
 func main() {

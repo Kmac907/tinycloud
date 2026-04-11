@@ -193,6 +193,87 @@ func TestRepoRootGoRunTopLevelTinyClouddServesHealthEndpoint(t *testing.T) {
 	t.Fatalf("health check never succeeded: url=%s stdout=%q stderr=%q", healthURL, stdout.String(), stderr.String())
 }
 
+func TestRepoRootGoRunAzureTinyClouddServesHealthEndpoint(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("repo-root go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	httpPort := reserveTCPPort(t)
+	httpsPort := reserveTCPPort(t)
+	blobPort := reserveTCPPort(t)
+	queuePort := reserveTCPPort(t)
+	tablePort := reserveTCPPort(t)
+	keyVaultPort := reserveTCPPort(t)
+	serviceBusPort := reserveTCPPort(t)
+	appConfigPort := reserveTCPPort(t)
+	cosmosPort := reserveTCPPort(t)
+	eventHubsPort := reserveTCPPort(t)
+	dnsPort := reserveUDPPort(t)
+
+	dataRoot := t.TempDir()
+	cmd := exec.Command("go", "run", ".\\azure\\cmd\\tinycloudd")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+		"TINYCLOUD_DATA_ROOT="+dataRoot,
+		"TINYCLOUD_LISTEN_HOST=127.0.0.1",
+		"TINYCLOUD_ADVERTISE_HOST=127.0.0.1",
+		"TINYCLOUD_MGMT_HTTP_PORT="+httpPort,
+		"TINYCLOUD_MGMT_HTTPS_PORT="+httpsPort,
+		"TINYCLOUD_BLOB_PORT="+blobPort,
+		"TINYCLOUD_QUEUE_PORT="+queuePort,
+		"TINYCLOUD_TABLE_PORT="+tablePort,
+		"TINYCLOUD_KEYVAULT_PORT="+keyVaultPort,
+		"TINYCLOUD_SERVICEBUS_PORT="+serviceBusPort,
+		"TINYCLOUD_APPCONFIG_PORT="+appConfigPort,
+		"TINYCLOUD_COSMOS_PORT="+cosmosPort,
+		"TINYCLOUD_DNS_PORT="+dnsPort,
+		"TINYCLOUD_EVENTHUBS_PORT="+eventHubsPort,
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		stopProcessListeningOnTCPPort(t, httpPort)
+		killProcessIfRunning(t, cmd.Process)
+		waitForCommandExit(t, cmd)
+	})
+
+	healthURL := fmt.Sprintf("http://127.0.0.1:%s/_admin/healthz", httpPort)
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(healthURL)
+		if err == nil {
+			body, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr == nil && resp.StatusCode == http.StatusOK && strings.Contains(string(body), "ok") {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+		if strings.Contains(strings.ToLower(stderr.String()), "access is denied") {
+			t.Skipf("repo-root azure tinycloudd go run is blocked in this environment: %s", stderr.String())
+		}
+	}
+
+	if strings.Contains(strings.ToLower(stderr.String()), "access is denied") {
+		t.Skipf("repo-root azure tinycloudd go run is blocked in this environment: %s", stderr.String())
+	}
+	t.Fatalf("health check never succeeded: url=%s stdout=%q stderr=%q", healthURL, stdout.String(), stderr.String())
+}
+
 func reserveTCPPort(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
