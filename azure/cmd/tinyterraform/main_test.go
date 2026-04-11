@@ -568,6 +568,46 @@ func TestRepoRootTinyTerraformScriptDoesNotRequireAzureWrapperForPassthrough(t *
 	}
 }
 
+func TestRepoRootGoRunTinyTerraformVersionJSON(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	override := filepath.Join(t.TempDir(), "terraform.cmd")
+	shimOutput := `{"terraform_version":"shim","platform":"windows_amd64","provider_selections":{},"terraform_outdated":false}`
+	shimScript := "@echo off\r\necho " + shimOutput + "\r\nexit /b 0\r\n"
+	if err := os.WriteFile(override, []byte(shimScript), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
+
+	cmd := exec.Command("go", "run", ".\\azure\\cmd\\tinyterraform", "--", "version", "-json")
+	cmd.Dir = repoRoot
+	cmd.Env = append(
+		os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+		"TERRAFORM_EXE="+override,
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := strings.TrimSpace(stdout.String()); got != shimOutput {
+		t.Fatalf("stdout = %q, want %q", got, shimOutput)
+	}
+}
+
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {
 	t.Parallel()
 
