@@ -96,7 +96,7 @@ func TestRunEServicesDisablePrintsRestartGuidanceWhenRuntimeActive(t *testing.T)
 	for _, fragment := range []string{
 		"Service Selection Updated",
 		"services  ● management,serviceBus,eventHubs",
-		"restart   ! required",
+		"restart   ‼ required",
 		"tinycloud restart",
 	} {
 		if !strings.Contains(output, fragment) {

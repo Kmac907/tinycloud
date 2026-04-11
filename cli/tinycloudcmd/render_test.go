@@ -23,12 +23,12 @@ func TestRenderDetachedStartOutputIncludesBannerOnlyWhenRequested(t *testing.T) 
 		},
 	}
 
-	withBanner := renderDetachedStartOutput(ui, true, "docker", summary, []string{"✔ build image"})
+	withBanner := renderDetachedStartOutput(ui, true, "docker", summary, []string{"✓ build image"})
 	if !strings.Contains(withBanner, tinyCloudBanner) {
 		t.Fatalf("renderDetachedStartOutput() missing banner:\n%s", withBanner)
 	}
 
-	withoutBanner := renderDetachedStartOutput(ui, false, "docker", summary, []string{"✔ build image"})
+	withoutBanner := renderDetachedStartOutput(ui, false, "docker", summary, []string{"✓ build image"})
 	if strings.Contains(withoutBanner, tinyCloudBanner) {
 		t.Fatalf("renderDetachedStartOutput() unexpectedly included banner:\n%s", withoutBanner)
 	}
@@ -59,12 +59,29 @@ func TestRenderServicesStatusUsesTableLayout(t *testing.T) {
 		"SERVICE",
 		"FAMILY",
 		"management",
-		"✔ yes",
+		"✓ yes",
 		"○ disabled",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("renderServicesStatus() missing %q in:\n%s", fragment, output)
 		}
+	}
+}
+
+func TestTerminalUIColorsOnlyTheStatusIcon(t *testing.T) {
+	t.Parallel()
+
+	ui := terminalUI{color: true}
+	got := ui.success("running")
+	want := ansiGreen + "✓" + ansiReset + " running"
+	if got != want {
+		t.Fatalf("success() = %q, want %q", got, want)
+	}
+
+	got = ui.warning("required")
+	want = ansiYellow + "‼" + ansiReset + " required"
+	if got != want {
+		t.Fatalf("warning() = %q, want %q", got, want)
 	}
 }
 

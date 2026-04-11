@@ -321,9 +321,10 @@ Apply middleware in this order:
 - `logs` should support tailing/following output, and interactive log output should preserve timestamps and service/source context where practical.
 - Progress indicators, colors, and spinners should be used only when writing to an interactive terminal and should degrade cleanly in non-interactive output.
 - Human-readable lifecycle and status output may use compact status icons where helpful, such as:
-  - green `✔` for success/ready/running
-  - red `✖` for failure
-  - yellow `!` for warnings or required follow-up such as restart-required state
+  - green `✓` for success/ready/running
+  - red `✗` for failure
+  - yellow `‼` for warnings or required follow-up such as restart-required state
+- color only the icon glyph itself; do not color the following label text
 - Colors must be emitted only for interactive terminal output; non-interactive output must stay readable without ANSI color support.
 - Non-interactive and machine-readable modes should avoid banners, progress animations, or mixed diagnostic chatter that would break piping and automation.
 - Error messages should be actionable: they should identify the failing service/runtime step and suggest the next command or fix.

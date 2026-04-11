@@ -71,27 +71,34 @@ func (ui terminalUI) renderBanner() string {
 }
 
 func (ui terminalUI) success(value string) string {
-	return ui.colorize("✔ "+value, ansiGreen)
+	return ui.iconize("✓", value, ansiGreen)
 }
 
 func (ui terminalUI) failure(value string) string {
-	return ui.colorize("✖ "+value, ansiRed)
+	return ui.iconize("✗", value, ansiRed)
 }
 
 func (ui terminalUI) warning(value string) string {
-	return ui.colorize("! "+value, ansiYellow)
+	return ui.iconize("‼", value, ansiYellow)
 }
 
 func (ui terminalUI) progress(value string) string {
-	return ui.colorize("… "+value, ansiDim)
+	return ui.iconize("…", value, ansiDim)
 }
 
 func (ui terminalUI) active(value string) string {
-	return ui.colorize("● "+value, ansiCyan)
+	return ui.iconize("●", value, ansiCyan)
 }
 
 func (ui terminalUI) inactive(value string) string {
-	return ui.colorize("○ "+value, ansiDim)
+	return ui.iconize("○", value, ansiDim)
+}
+
+func (ui terminalUI) iconize(icon, value, color string) string {
+	if !ui.color {
+		return icon + " " + value
+	}
+	return color + icon + ansiReset + " " + value
 }
 
 func (ui terminalUI) colorize(value, color string) string {
