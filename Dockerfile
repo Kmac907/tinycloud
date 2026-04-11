@@ -4,9 +4,10 @@ WORKDIR /src
 COPY go.mod ./go.mod
 COPY go.sum ./go.sum
 COPY cmd ./cmd
+COPY cli ./cli
 COPY azure/go.mod ./azure/go.mod
 COPY azure/go.sum ./azure/go.sum
-COPY azure/cli ./azure/cli
+COPY azure/runtime ./azure/runtime
 COPY azure/internal ./azure/internal
 
 RUN go build -o /out/tinycloud ./cmd/tinycloud && \

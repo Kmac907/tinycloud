@@ -23,6 +23,17 @@ type cliContext struct {
 	config      tinycloudconfig.Config
 }
 
+type startOptions struct {
+	detached         bool
+	jsonOutput       bool
+	servicesOverride string
+	backend          string
+	env              []string
+	publish          []string
+	volumes          []string
+	network          string
+}
+
 func Main() {
 	os.Exit(Run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -107,50 +118,132 @@ func loadCLIContext(getwd func() (string, error)) (cliContext, error) {
 	}, nil
 }
 
-func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, error) {
-	detached := false
-	jsonOutput := false
-	servicesOverride := ""
+func parseStartOptions(args []string) (startOptions, error) {
+	options := startOptions{}
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
 		case arg == "--detached" || arg == "-d":
-			detached = true
+			options.detached = true
 		case arg == "--json":
-			jsonOutput = true
+			options.jsonOutput = true
 		case arg == "--attached":
-			detached = false
+			options.detached = false
 		case strings.HasPrefix(arg, "--services="):
-			servicesOverride = strings.TrimSpace(strings.TrimPrefix(arg, "--services="))
+			options.servicesOverride = strings.TrimSpace(strings.TrimPrefix(arg, "--services="))
 		case arg == "--services":
 			if i+1 >= len(args) {
-				return 2, errors.New("start --services requires a value")
+				return startOptions{}, errors.New("start --services requires a value")
 			}
 			i++
-			servicesOverride = strings.TrimSpace(args[i])
+			options.servicesOverride = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--backend="):
+			options.backend = strings.TrimSpace(strings.TrimPrefix(arg, "--backend="))
+		case arg == "--backend":
+			if i+1 >= len(args) {
+				return startOptions{}, errors.New("start --backend requires a value")
+			}
+			i++
+			options.backend = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--env="):
+			options.env = append(options.env, strings.TrimSpace(strings.TrimPrefix(arg, "--env=")))
+		case arg == "--env" || arg == "-e":
+			if i+1 >= len(args) {
+				return startOptions{}, errors.New("start --env requires KEY=VALUE")
+			}
+			i++
+			options.env = append(options.env, strings.TrimSpace(args[i]))
+		case strings.HasPrefix(arg, "--publish="):
+			options.publish = append(options.publish, strings.TrimSpace(strings.TrimPrefix(arg, "--publish=")))
+		case arg == "--publish" || arg == "-p":
+			if i+1 >= len(args) {
+				return startOptions{}, errors.New("start --publish requires a value")
+			}
+			i++
+			options.publish = append(options.publish, strings.TrimSpace(args[i]))
+		case strings.HasPrefix(arg, "--volume="):
+			options.volumes = append(options.volumes, strings.TrimSpace(strings.TrimPrefix(arg, "--volume=")))
+		case arg == "--volume" || arg == "-v":
+			if i+1 >= len(args) {
+				return startOptions{}, errors.New("start --volume requires a value")
+			}
+			i++
+			options.volumes = append(options.volumes, strings.TrimSpace(args[i]))
+		case strings.HasPrefix(arg, "--network="):
+			options.network = strings.TrimSpace(strings.TrimPrefix(arg, "--network="))
+		case arg == "--network":
+			if i+1 >= len(args) {
+				return startOptions{}, errors.New("start --network requires a value")
+			}
+			i++
+			options.network = strings.TrimSpace(args[i])
 		default:
-			return 2, fmt.Errorf("unknown start option %q", arg)
+			return startOptions{}, fmt.Errorf("unknown start option %q", arg)
 		}
 	}
+	return options, nil
+}
 
-	if record, ok, err := activeRuntime(ctx.runtimeRoot); err == nil && ok && isProcessRunning(record.PID) {
-		return 1, fmt.Errorf("TinyCloud is already running with PID %d", record.PID)
+func resolveRuntimeBackend(flagValue string, env map[string]string) string {
+	if value := strings.TrimSpace(flagValue); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(env["TINYCLOUD_BACKEND"]); value != "" {
+		return value
+	}
+	if dockerAvailable() {
+		return "docker"
+	}
+	return "process"
+}
+
+func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, error) {
+	options, err := parseStartOptions(args)
+	if err != nil {
+		return 2, err
+	}
+
+	if record, ok, err := activeRuntime(ctx.runtimeRoot); err == nil && ok {
+		return 1, fmt.Errorf("TinyCloud is already running via %s", record.Backend)
 	}
 
 	runCtx := ctx
 	runCtx.env = copyMap(ctx.env)
-	if servicesOverride != "" {
-		runCtx.env["TINYCLOUD_SERVICES"] = servicesOverride
-		runCtx.config = tinycloudconfig.FromMap(runCtx.env)
-		if !filepath.IsAbs(runCtx.config.DataRoot) {
-			runCtx.config.DataRoot = filepath.Clean(filepath.Join(ctx.cwd, runCtx.config.DataRoot))
-			runCtx.env["TINYCLOUD_DATA_ROOT"] = runCtx.config.DataRoot
+	for _, value := range options.env {
+		key, raw, ok := strings.Cut(value, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return 2, fmt.Errorf("start --env requires KEY=VALUE, got %q", value)
 		}
+		if strings.HasPrefix(key, "TINYCLOUD_") {
+			runCtx.env[key] = raw
+		}
+	}
+	if options.servicesOverride != "" {
+		runCtx.env["TINYCLOUD_SERVICES"] = options.servicesOverride
+	}
+	runCtx.config = tinycloudconfig.FromMap(runCtx.env)
+	if !filepath.IsAbs(runCtx.config.DataRoot) {
+		runCtx.config.DataRoot = filepath.Clean(filepath.Join(ctx.cwd, runCtx.config.DataRoot))
+		runCtx.env["TINYCLOUD_DATA_ROOT"] = runCtx.config.DataRoot
 	}
 	if err := runCtx.config.Validate(); err != nil {
 		return 1, err
 	}
 	if err := runCtx.config.RequireServices(); err != nil {
 		return 1, err
+	}
+	backend := resolveRuntimeBackend(options.backend, runCtx.env)
+	if backend == "" {
+		return 1, errors.New("could not determine a TinyCloud runtime backend")
+	}
+	if backend == "docker" {
+		return startDockerRuntime(runCtx, dockerRuntime{
+			Image:         strings.TrimSpace(runCtx.env["TINYCLOUD_DOCKER_IMAGE"]),
+			ContainerName: dockerContainerName(runCtx.runtimeRoot),
+			Network:       options.network,
+			Env:           append([]string(nil), options.env...),
+			Publish:       append([]string(nil), options.publish...),
+			Volumes:       append([]string(nil), options.volumes...),
+		}, options.detached, options.jsonOutput, stdout)
 	}
 
 	binaryPath, err := buildTinyClouddBinary(runCtx.repoRoot, runCtx.runtimeRoot, runCtx.env)
@@ -159,7 +252,7 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 	}
 	logPath := filepath.Join(runCtx.runtimeRoot, "tinycloudd.log")
 
-	if detached {
+	if options.detached {
 		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
 			return 1, fmt.Errorf("open runtime log: %w", err)
@@ -211,7 +304,7 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 		if runCtx.config.ServiceEnabled(tinycloudconfig.ServiceManagement) {
 			summary["management"] = runCtx.config.ManagementHTTPURL()
 		}
-		if jsonOutput {
+		if options.jsonOutput {
 			return 0, formatJSON(stdout, summary)
 		}
 		_, err = fmt.Fprintf(stdout, "runtime=running\nruntimeId=process:%d\nbackend=process\npid=%d\nservices=%s\nlog=%s\n", cmd.Process.Pid, cmd.Process.Pid, joinServices(runCtx.config.EnabledServices()), logPath)
@@ -245,7 +338,7 @@ func runStart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, err
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	if jsonOutput {
+	if options.jsonOutput {
 		if err := formatJSON(stdout, map[string]any{
 			"status":   "starting",
 			"backend":  "process",
@@ -289,10 +382,17 @@ func runStop(ctx cliContext, stdout io.Writer) (int, error) {
 		_, err := fmt.Fprintln(stdout, "runtime=stopped")
 		return 0, err
 	}
-	if isProcessRunning(record.PID) {
+	switch record.Backend {
+	case "", "process":
 		if err := stopProcess(record.PID); err != nil {
 			return 1, fmt.Errorf("stop runtime PID %d: %w", record.PID, err)
 		}
+	case "docker":
+		if err := stopDockerRuntime(record); err != nil {
+			return 1, err
+		}
+	default:
+		return 1, fmt.Errorf("unsupported runtime backend %q", record.Backend)
 	}
 	if err := removeRuntimeRecord(ctx.runtimeRoot); err != nil {
 		return 1, err
@@ -304,6 +404,8 @@ func runStop(ctx cliContext, stdout io.Writer) (int, error) {
 func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, error) {
 	detached := false
 	explicitMode := false
+	backend := ""
+	var restartDocker *dockerRuntime
 	for _, arg := range args {
 		switch arg {
 		case "--detached", "-d":
@@ -312,6 +414,10 @@ func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, e
 		case "--attached":
 			detached = false
 			explicitMode = true
+		case "--backend=process":
+			backend = "process"
+		case "--backend=docker":
+			backend = "docker"
 		default:
 			return 2, fmt.Errorf("unknown restart option %q", arg)
 		}
@@ -325,6 +431,10 @@ func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, e
 		if !explicitMode {
 			detached = record.Detached
 		}
+		if backend == "" {
+			backend = record.Backend
+		}
+		restartDocker = record.Docker
 		mergedEnv := copyMap(record.Env)
 		for key, value := range ctx.env {
 			if strings.HasPrefix(key, "TINYCLOUD_") || key == "GOCACHE" {
@@ -345,6 +455,23 @@ func runRestart(ctx cliContext, args []string, stdout, stderr io.Writer) (int, e
 	startArgs := []string{}
 	if detached {
 		startArgs = append(startArgs, "--detached")
+	}
+	if backend != "" {
+		startArgs = append(startArgs, "--backend="+backend)
+	}
+	if restartDocker != nil {
+		for _, value := range restartDocker.Env {
+			startArgs = append(startArgs, "--env="+value)
+		}
+		for _, value := range restartDocker.Publish {
+			startArgs = append(startArgs, "--publish="+value)
+		}
+		for _, value := range restartDocker.Volumes {
+			startArgs = append(startArgs, "--volume="+value)
+		}
+		if restartDocker.Network != "" {
+			startArgs = append(startArgs, "--network="+restartDocker.Network)
+		}
 	}
 	return runStart(ctx, startArgs, stdout, stderr)
 }
@@ -379,7 +506,7 @@ func runWait(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	if !ok || !isProcessRunning(record.PID) {
+	if !ok {
 		return 1, errors.New("TinyCloud is not running")
 	}
 	if err := waitForHealthy(record.Config, timeout); err != nil {
@@ -404,6 +531,9 @@ func runLogs(ctx cliContext, args []string, stdout io.Writer) (int, error) {
 		return 1, err
 	}
 	if !ok || record.LogPath == "" {
+		if record.Backend == "docker" && record.Docker != nil {
+			return 0, dockerLogs(record.Docker.ContainerName, follow, stdout)
+		}
 		return 1, errors.New("no active TinyCloud runtime log is available")
 	}
 	return 0, streamLog(record.LogPath, follow, stdout)
@@ -443,18 +573,22 @@ func statusRuntime(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, erro
 		"backend": "process",
 	}
 	if ok {
+		status["backend"] = record.Backend
 		status["pid"] = record.PID
 		status["detached"] = record.Detached
 		status["startedAt"] = record.StartedAt
 		status["logPath"] = record.LogPath
 		status["services"] = record.Config.EnabledServices()
-		if isProcessRunning(record.PID) {
-			status["status"] = "running"
-			if runtimeStatus, err := readRuntimeStatus(record.Config); err == nil {
-				status["runtime"] = runtimeStatus
-			} else {
-				status["runtimeError"] = err.Error()
-			}
+		if record.Docker != nil {
+			status["container"] = record.Docker.ContainerName
+			status["containerId"] = record.Docker.ContainerID
+			status["image"] = record.Docker.Image
+		}
+		status["status"] = "running"
+		if runtimeStatus, err := readRuntimeStatus(record.Config); err == nil {
+			status["runtime"] = runtimeStatus
+		} else {
+			status["runtimeError"] = err.Error()
 		}
 	}
 
@@ -464,6 +598,12 @@ func statusRuntime(ctx cliContext, jsonOutput bool, stdout io.Writer) (int, erro
 	_, err = fmt.Fprintf(stdout, "runtime=%s\nbackend=%v\n", status["status"], status["backend"])
 	if pid, ok := status["pid"]; ok {
 		_, err = fmt.Fprintf(stdout, "pid=%v\n", pid)
+	}
+	if container, ok := status["container"]; ok {
+		_, err = fmt.Fprintf(stdout, "container=%v\n", container)
+	}
+	if image, ok := status["image"]; ok {
+		_, err = fmt.Fprintf(stdout, "image=%v\n", image)
 	}
 	if services, ok := status["services"].([]tinycloudconfig.Service); ok {
 		_, err = fmt.Fprintf(stdout, "services=%s\n", joinServices(services))
@@ -592,7 +732,7 @@ func updateServices(ctx cliContext, values []string, enable bool, stdout io.Writ
 	}
 
 	_, err = fmt.Fprintf(stdout, "services=%s\n", ctx.env["TINYCLOUD_SERVICES"])
-	if ok && isProcessRunning(record.PID) {
+	if ok {
 		_, err = fmt.Fprintln(stdout, "restartRequired=true")
 		_, err = fmt.Fprintln(stdout, "next=tinycloud restart")
 	}
@@ -634,7 +774,11 @@ func activeRuntime(runtimeRoot string) (runtimeRecord, bool, error) {
 		}
 		return runtimeRecord{}, false, err
 	}
-	if !isProcessRunning(record.PID) {
+	running, err := runtimeRunning(record)
+	if err != nil {
+		return runtimeRecord{}, false, err
+	}
+	if !running {
 		_ = removeRuntimeRecord(runtimeRoot)
 		return runtimeRecord{}, false, nil
 	}

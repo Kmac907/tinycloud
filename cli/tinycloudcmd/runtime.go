@@ -37,6 +37,7 @@ type runtimeRecord struct {
 	Detached    bool                   `json:"detached"`
 	Env         map[string]string      `json:"env"`
 	Config      tinycloudconfig.Config `json:"config"`
+	Docker      *dockerRuntime         `json:"docker,omitempty"`
 }
 
 func resolveRepoRoot(cwd string) (string, error) {
@@ -149,6 +150,20 @@ func loadRuntimeRecord(runtimeRoot string) (runtimeRecord, error) {
 		record.Config = tinycloudconfig.FromMap(record.Env)
 	}
 	return record, nil
+}
+
+func runtimeRunning(record runtimeRecord) (bool, error) {
+	switch record.Backend {
+	case "", "process":
+		return isProcessRunning(record.PID), nil
+	case "docker":
+		if record.Docker == nil {
+			return false, nil
+		}
+		return dockerContainerRunning(record.Docker.ContainerName)
+	default:
+		return false, fmt.Errorf("unsupported runtime backend %q", record.Backend)
+	}
 }
 
 func saveRuntimeRecord(runtimeRoot string, record runtimeRecord) error {

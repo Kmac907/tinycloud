@@ -411,7 +411,19 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 .\scripts\tinycloudd.ps1
 ```
 
-The built-in `tinycloud` CLI is not an Azure CLI replacement. It is now the local runtime manager plus endpoint, config, and service-control surface for the current managed process backend.
+The built-in `tinycloud` CLI is not an Azure CLI replacement. It is now the local runtime manager plus endpoint, config, and service-control surface for both supported local runtime backends:
+
+- Docker is the default backend when Docker is available locally. `tinycloud start` auto-builds the repo-root `tinycloud-azure` image if needed and then manages the active TinyCloud container for `status`, `logs`, `wait`, `restart`, and `stop`.
+- `--backend process` keeps the managed local `tinycloudd` binary workflow available when you want to stay outside Docker.
+
+`tinycloud start` now also accepts LocalStack-style bootstrap inputs for the current local runtime workflow:
+
+- `--backend docker|process`
+- `--services ...`
+- `--env KEY=VALUE`
+- `--publish HOSTPORT:CONTAINERPORT`
+- `--volume HOSTPATH:CONTAINERPATH`
+- `--network NAME`
 
 The runtime now also honors `TINYCLOUD_SERVICES` so listener startup is explicit instead of implicitly always-on. The current service-selection model accepts either individual services or family aliases:
 
@@ -431,7 +443,7 @@ go run .\cmd\tinycloudd
 
 When service selection is in use, `/_admin/runtime`, `/_admin/services`, `tinycloud endpoints`, and metadata discovery now reflect the enabled service set rather than advertising listeners that were never started.
 
-`tinycloud services enable ...` and `tinycloud services disable ...` persist the selected service set under `.tinycloud-runtime\tinycloud.env` so later `tinycloud start`, `tinycloud restart`, and `tinycloud config show` calls reconnect to the same intended local runtime configuration. Because the current runtime backend does not live-toggle listeners, service changes currently require a restart, and the CLI now prints `restartRequired=true` plus `next=tinycloud restart` when you change services against an already running runtime.
+`tinycloud services enable ...` and `tinycloud services disable ...` persist the selected service set under `.tinycloud-runtime\tinycloud.env` so later `tinycloud start`, `tinycloud restart`, and `tinycloud config show` calls reconnect to the same intended local runtime configuration. Because the current runtime backends do not live-toggle listeners, service changes currently require a restart, and the CLI now prints `restartRequired=true` plus `next=tinycloud restart` when you change services against an already running runtime.
 
 The shared product-command entry layer now lives in the repo-root `tinycloud\cli\...` packages, while the older `tinycloud\azure\cmd\...` paths remain compatibility shims over that cloud-agnostic layer and the current Azure-backed runtime adapters stay under `tinycloud\azure\runtime\...`.
 
@@ -452,7 +464,7 @@ The repo root also exposes a thin `tinycloud` wrapper for the current transition
 
 Those repo-root wrappers now build through repo-root-relative command package paths, preferring the top-level `cmd\...` entrypoints and falling back to the Azure compatibility paths under `azure\cmd\...` when needed. They cache the built binaries under `.tinycloud-runtime` and default their Go build cache to `tinycloud\.gocache`.
 
-`tinycloud start --detached` now prints a concise machine-readable summary for the managed local process backend, including the runtime identifier, selected services, advertised endpoints, and the next useful follow-up commands.
+`tinycloud start --detached` now prints a concise machine-readable summary for the active backend, including the runtime identifier, selected services, advertised endpoints, and the next useful follow-up commands. For the Docker backend, `status runtime` now also reports the active TinyCloud container identity and image.
 
 TinyCloud's compatibility direction is intentionally LocalStack-style:
 
@@ -626,13 +638,22 @@ Compatibility goal:
 ```powershell
 $env:TINYCLOUD_DATA_ROOT="$PWD\data"
 go run .\cmd\tinycloud init
-go run .\cmd\tinycloudd
+go run .\cmd\tinycloud start --detached
+go run .\cmd\tinycloud wait --timeout 30s
 ```
 
-From `tinycloud\`, the same runtime entrypoint is also available through the repo-root wrapper:
+To use the direct non-container runtime path instead, force the managed process backend explicitly:
+
+```powershell
+$env:TINYCLOUD_DATA_ROOT="$PWD\data"
+go run .\cmd\tinycloud start --backend process
+```
+
+From `tinycloud\`, the same control/runtime entrypoints are also available through the repo-root wrappers:
 
 ```powershell
 $env:TINYCLOUD_DATA_ROOT="$PWD\azure\data"
+.\scripts\tinycloud.ps1 start --detached
 .\scripts\tinycloudd.ps1
 ```
 
