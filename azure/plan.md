@@ -315,7 +315,7 @@ Apply middleware in this order:
 - `start` should default to detached mode and should print the runtime identifier, backend, selected services, exposed endpoints, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
 - `start --attached` should print a concise runtime summary before streaming logs.
 - `status runtime`, `status services`, `config show`, and `endpoints` should have stable human-readable output by default and support machine-readable output formats such as JSON.
-- `status services` should render clearly in the terminal, for example as a compact table with service name, enabled state, health state, endpoint, and notes.
+- `status services` should render clearly in the terminal, for example as a compact table with `Service` and `Status` columns for the human-readable view.
 - Human-readable `status services` output should use a table by default.
 - Human-readable `status runtime` output should use a stable summary table or grouped key/value layout by default.
 - Human-readable `endpoints` output should use a stable table rather than an arbitrary key-order dump.
