@@ -301,8 +301,15 @@ func TestTinyTerraformScriptHonorsMainPackageOverrideOnInit(t *testing.T) {
 		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
 	}
 
-	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT init") {
+	got := stdout.String()
+	if !strings.Contains(got, "SHIM_INIT init") {
 		t.Fatalf("stdout = %q, want SHIM_INIT init", got)
+	}
+	if strings.Contains(got, "Resetting TinyCloud runtime state for terraform init") {
+		t.Fatalf("stdout = %q, want launcher-owned init path without wrapper reset message", got)
+	}
+	if _, err := os.Stat(filepath.Join(workingDir, "tinyterraform-runtime", "tinyterraform.exe")); err != nil {
+		t.Fatalf("tinyterraform launcher binary was not created: %v", err)
 	}
 }
 
@@ -496,8 +503,15 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
 	}
 
-	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT init") {
+	got := stdout.String()
+	if !strings.Contains(got, "SHIM_INIT init") {
 		t.Fatalf("stdout = %q, want SHIM_INIT init", got)
+	}
+	if strings.Contains(got, "Resetting TinyCloud runtime state for terraform init") {
+		t.Fatalf("stdout = %q, want launcher-owned init path without wrapper reset message", got)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinyterraform.exe")); err != nil {
+		t.Fatalf("repo-root default tinyterraform launcher was not created: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
 		t.Fatalf("repo-root default tinyterraform runtime was not created: %v", err)

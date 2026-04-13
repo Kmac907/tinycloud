@@ -390,19 +390,19 @@ func ResolveTinyCloudMainPackage(repoRoot string) string {
 	if packageValue := os.Getenv("TINYCLOUD_MAIN_PACKAGE"); packageValue != "" {
 		switch filepath.Clean(strings.ReplaceAll(packageValue, "/", `\`)) {
 		case `tinycloud\cmd\tinycloud`:
-			if _, err := os.Stat(filepath.Join(repoRoot, "cmd", "tinycloud", "main.go")); err == nil {
-				return `.\cmd\tinycloud`
+			if topLevelMain := filepath.Join(repoRoot, "cmd", "tinycloud", "main.go"); fileExists(topLevelMain) {
+				return topLevelMain
 			}
-			return `.\azure\cmd\tinycloud`
+			return filepath.Join(repoRoot, "azure", "cmd", "tinycloud", "main.go")
 		default:
 			return packageValue
 		}
 	}
 
-	if _, err := os.Stat(filepath.Join(repoRoot, "cmd", "tinycloud", "main.go")); err == nil {
-		return `.\cmd\tinycloud`
+	if topLevelMain := filepath.Join(repoRoot, "cmd", "tinycloud", "main.go"); fileExists(topLevelMain) {
+		return topLevelMain
 	}
-	return `.\azure\cmd\tinycloud`
+	return filepath.Join(repoRoot, "azure", "cmd", "tinycloud", "main.go")
 }
 
 func ResolveTinyTerraformRuntimeRoot(repoRoot string) string {
@@ -430,6 +430,11 @@ func BuildTinyCloudExe(repoRoot, runtimeRoot string) (string, error) {
 	}
 
 	return tinycloudExe, nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func GoBuildEnv(repoRoot string) []string {

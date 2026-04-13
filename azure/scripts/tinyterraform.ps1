@@ -70,6 +70,38 @@ function Resolve-TinyCloudGoWorkdir {
     return $repoRoot
 }
 
+function Resolve-TinyTerraformRepoRoot {
+    param([string]$TinyCloudSourceRoot)
+
+    $repoRootCandidate = $TinyCloudSourceRoot
+    if (Test-Path (Join-Path $repoRootCandidate "cmd\tinyterraform\main.go")) {
+        return $repoRootCandidate
+    }
+
+    $parent = Split-Path -Parent $TinyCloudSourceRoot
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and (Test-Path (Join-Path $parent "cmd\tinyterraform\main.go"))) {
+        return $parent
+    }
+
+    throw "could not locate a TinyCloud repo root containing cmd\tinyterraform\main.go"
+}
+
+function Resolve-TinyTerraformMainPackage {
+    param([string]$TinyTerraformRepoRoot)
+
+    $topLevelPackage = Join-Path $TinyTerraformRepoRoot "cmd\tinyterraform\main.go"
+    if (Test-Path $topLevelPackage) {
+        return $topLevelPackage
+    }
+
+    $azurePackage = Join-Path $TinyTerraformRepoRoot "azure\cmd\tinyterraform\main.go"
+    if (Test-Path $azurePackage) {
+        return $azurePackage
+    }
+
+    throw "could not locate a TinyCloud tinyterraform main package"
+}
+
 function Resolve-TinyTerraformRuntimeRoot {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_RUNTIME_ROOT)) {
         return $env:TINYTERRAFORM_RUNTIME_ROOT
@@ -173,6 +205,7 @@ $serverStdout = Join-Path $runtimeRoot "tinycloud.stdout.log"
 $serverStderr = Join-Path $runtimeRoot "tinycloud.stderr.log"
 $shimLog = Join-Path $runtimeRoot "azshim.log"
 $tinycloudExe = Join-Path $runtimeRoot "tinycloud.exe"
+$tinyterraformExe = Join-Path $runtimeRoot "tinyterraform.exe"
 $hostsPath = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
 $hostsStartMarker = "# tinycloud terraform begin"
 $hostsEndMarker = "# tinycloud terraform end"
@@ -254,6 +287,38 @@ $shimPowerShellExe = (Get-Process -Id $PID).Path
 
 if (-not $requiresTinyCloudRuntime) {
     & $terraformExe @TerraformArgs
+    exit $LASTEXITCODE
+}
+
+if ($terraformSubcommand -eq "init") {
+    $tinyterraformRepoRoot = Resolve-TinyTerraformRepoRoot -TinyCloudSourceRoot $repoRoot
+    $tinyterraformMainPackage = Resolve-TinyTerraformMainPackage -TinyTerraformRepoRoot $tinyterraformRepoRoot
+    New-Item -ItemType Directory -Force $runtimeRoot | Out-Null
+
+    $originalGoWork = $env:GOWORK
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYCLOUD_GO_WORKDIR)) {
+        $goWorkFile = Join-Path $tinycloudGoWorkdir "go.work"
+        if (Test-Path $goWorkFile) {
+            $env:GOWORK = $goWorkFile
+        }
+    }
+
+    Push-Location $tinycloudGoWorkdir
+    try {
+        & go build -o $tinyterraformExe $tinyterraformMainPackage
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to build tinyterraform"
+        }
+    } finally {
+        Pop-Location
+        if ([string]::IsNullOrWhiteSpace($originalGoWork)) {
+            Remove-Item -Path Env:GOWORK -ErrorAction SilentlyContinue
+        } else {
+            $env:GOWORK = $originalGoWork
+        }
+    }
+
+    & $tinyterraformExe @TerraformArgs
     exit $LASTEXITCODE
 }
 
