@@ -8,7 +8,7 @@
   <a href="#"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Docker-Single%20Container-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Single Container" /></a>
   <a href="#current-emulation-scope"><img src="https://img.shields.io/badge/Azure-ARM%20%2B%20Storage%20%2B%20Data%20%2B%20Secrets%20%2B%20Messaging-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure ARM Storage Data Secrets and Messaging" /></a>
-  <a href="https://x.com/Kyle_Andrew_Mac"><img src="https://img.shields.io/badge/X-@Kyle_Andrew_Mac-000000?style=for-the-badge&logo=x&logoColor=white" alt="X Kyle Andrew Mac" /></a>
+  <a href="https://x.com/TheOmniDev"><img src="https://img.shields.io/badge/X-@TheOmniDev-000000?style=for-the-badge&logo=x&logoColor=white" alt="X TheOmniDev" /></a>
 </p>
 
 <p align="center"><sub>Develop and test Azure-facing applications locally with a focused emulator for ARM, identity, storage, document data, private DNS, network security, secrets, messaging, and event streaming workflows.</sub></p>

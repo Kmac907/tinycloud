@@ -8,3 +8,4 @@ examples/terraform/resource-group/terraform.tfstate.backup
 implementation-plan.md
 agent-workflow.md
 release-validation.md
+AGENTS.md
