@@ -648,6 +648,96 @@ func TestRepoRootGoRunTopLevelTinyTerraformVersionJSON(t *testing.T) {
 	}
 }
 
+func TestRepoRootGoRunTopLevelTinyTerraformInitDoesNotRequireScript(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	workingDir := t.TempDir()
+	override := filepath.Join(workingDir, "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho SHIM_INIT %*\r\nexit /b 0\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
+
+	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
+	cmd := exec.Command("go", "run", ".\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "init")
+	cmd.Dir = repoRoot
+	cmd.Env = append(
+		os.Environ(),
+		"GOCACHE="+filepath.Join(workingDir, "gocache"),
+		"TERRAFORM_EXE="+override,
+		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
+		"TINYTERRAFORM_SCRIPT="+filepath.Join(workingDir, "missing-tinyterraform.ps1"),
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT -chdir="+workingDir+" init") {
+		t.Fatalf("stdout = %q, want SHIM_INIT init output", got)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
+		t.Fatalf("tinycloud runtime binary was not created: %v", err)
+	}
+}
+
+func TestRepoRootGoRunAzureTinyTerraformInitDoesNotRequireScript(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("tinyterraform go run test requires Windows")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	workingDir := t.TempDir()
+	override := filepath.Join(workingDir, "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho SHIM_INIT %*\r\nexit /b 0\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
+
+	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
+	cmd := exec.Command("go", "run", ".\\azure\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "init")
+	cmd.Dir = repoRoot
+	cmd.Env = append(
+		os.Environ(),
+		"GOCACHE="+filepath.Join(workingDir, "gocache"),
+		"TERRAFORM_EXE="+override,
+		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
+		"TINYTERRAFORM_SCRIPT="+filepath.Join(workingDir, "missing-tinyterraform.ps1"),
+	)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run() error = %v, stderr = %q", err, stderr.String())
+	}
+
+	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT -chdir="+workingDir+" init") {
+		t.Fatalf("stdout = %q, want SHIM_INIT init output", got)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
+		t.Fatalf("tinycloud runtime binary was not created: %v", err)
+	}
+}
+
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {
 	t.Parallel()
 

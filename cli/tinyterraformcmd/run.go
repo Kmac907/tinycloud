@@ -1,6 +1,7 @@
 package tinyterraformcmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 func Main() {
@@ -38,6 +40,9 @@ func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 			return 1, err
 		}
 		return RunCommand(terraformExe, args, stdin, stdout, stderr)
+	}
+	if subcommand == "init" {
+		return RunLocalInit(args, stdin, stdout, stderr, getwd, lookPath)
 	}
 
 	powerShellExe, err := ResolvePowerShellExe(lookPath)
@@ -274,4 +279,225 @@ func UniquePaths(values []string) []string {
 	}
 
 	return result
+}
+
+func RunLocalInit(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func() (string, error), lookPath func(string) (string, error)) (int, error) {
+	terraformExe, err := ResolveTerraformExe(lookPath)
+	if err != nil {
+		return 1, err
+	}
+
+	cwd, err := getwd()
+	if err != nil {
+		return 1, fmt.Errorf("resolve current directory: %w", err)
+	}
+
+	repoRoot, err := ResolveTinyCloudRepoRoot(cwd)
+	if err != nil {
+		return 1, err
+	}
+
+	runtimeRoot := ResolveTinyTerraformRuntimeRoot(repoRoot)
+	tinycloudExe, err := BuildTinyCloudExe(repoRoot, runtimeRoot)
+	if err != nil {
+		return 1, err
+	}
+
+	if code, err := RunCommand(tinycloudExe, []string{"reset"}, nil, stdout, stderr); err != nil || code != 0 {
+		if err != nil {
+			return 1, fmt.Errorf("reset tinycloud state: %w", err)
+		}
+		return code, nil
+	}
+
+	if code, err := RunCommand(tinycloudExe, []string{"init"}, nil, stdout, stderr); err != nil || code != 0 {
+		if err != nil {
+			return 1, fmt.Errorf("initialize tinycloud state: %w", err)
+		}
+		return code, nil
+	}
+
+	var envStdout bytes.Buffer
+	if code, err := RunCommand(tinycloudExe, []string{"env", "terraform"}, nil, &envStdout, stderr); err != nil || code != 0 {
+		if err != nil {
+			return 1, fmt.Errorf("load tinycloud terraform environment: %w", err)
+		}
+		return code, nil
+	}
+
+	terraformEnv, err := TerraformInitEnv(envStdout.String())
+	if err != nil {
+		return 1, err
+	}
+
+	return RunTerraformInit(terraformExe, cwd, args, stdin, stdout, stderr, terraformEnv)
+}
+
+func ResolveTinyCloudRepoRoot(cwd string) (string, error) {
+	if sourceRoot := os.Getenv("TINYCLOUD_SOURCE_ROOT"); sourceRoot != "" {
+		cleaned := filepath.Clean(sourceRoot)
+		if LooksLikeTinyCloudRepoRoot(cleaned) {
+			return cleaned, nil
+		}
+		parent := filepath.Dir(cleaned)
+		if parent != cleaned && LooksLikeTinyCloudRepoRoot(parent) {
+			return parent, nil
+		}
+	}
+
+	for _, start := range CandidateSearchRoots(cwd) {
+		current := filepath.Clean(start)
+		for {
+			if LooksLikeTinyCloudRepoRoot(current) {
+				return current, nil
+			}
+
+			parent := filepath.Dir(current)
+			if parent == current {
+				break
+			}
+			current = parent
+		}
+	}
+
+	return "", errors.New("could not locate the TinyCloud repo root from the current workspace")
+}
+
+func LooksLikeTinyCloudRepoRoot(path string) bool {
+	if path == "" {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(path, "go.work")); err != nil || info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(path, "cmd", "tinycloud", "main.go")); err != nil || info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(path, "azure", "go.mod")); err != nil || info.IsDir() {
+		return false
+	}
+	return true
+}
+
+func ResolveTinyCloudGoWorkdir(repoRoot string) string {
+	if value := os.Getenv("TINYCLOUD_GO_WORKDIR"); value != "" {
+		return filepath.Clean(value)
+	}
+	return repoRoot
+}
+
+func ResolveTinyCloudMainPackage(repoRoot string) string {
+	if packageValue := os.Getenv("TINYCLOUD_MAIN_PACKAGE"); packageValue != "" {
+		switch filepath.Clean(strings.ReplaceAll(packageValue, "/", `\`)) {
+		case `tinycloud\cmd\tinycloud`:
+			if _, err := os.Stat(filepath.Join(repoRoot, "cmd", "tinycloud", "main.go")); err == nil {
+				return `.\cmd\tinycloud`
+			}
+			return `.\azure\cmd\tinycloud`
+		default:
+			return packageValue
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(repoRoot, "cmd", "tinycloud", "main.go")); err == nil {
+		return `.\cmd\tinycloud`
+	}
+	return `.\azure\cmd\tinycloud`
+}
+
+func ResolveTinyTerraformRuntimeRoot(repoRoot string) string {
+	if value := os.Getenv("TINYTERRAFORM_RUNTIME_ROOT"); value != "" {
+		return value
+	}
+	return filepath.Join(repoRoot, ".tinyterraform-runtime")
+}
+
+func BuildTinyCloudExe(repoRoot, runtimeRoot string) (string, error) {
+	if err := os.MkdirAll(runtimeRoot, 0o755); err != nil {
+		return "", fmt.Errorf("create tinyterraform runtime root: %w", err)
+	}
+
+	tinycloudExe := filepath.Join(runtimeRoot, "tinycloud.exe")
+	goWorkdir := ResolveTinyCloudGoWorkdir(repoRoot)
+	mainPackage := ResolveTinyCloudMainPackage(repoRoot)
+
+	cmd := exec.Command("go", "build", "-o", tinycloudExe, mainPackage)
+	cmd.Dir = goWorkdir
+	cmd.Env = GoBuildEnv(repoRoot)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("build tinycloud: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	return tinycloudExe, nil
+}
+
+func GoBuildEnv(repoRoot string) []string {
+	env := os.Environ()
+	if os.Getenv("GOCACHE") != "" {
+		return env
+	}
+	return append(env, "GOCACHE="+filepath.Join(repoRoot, ".gocache"))
+}
+
+func TerraformInitEnv(raw string) (map[string]string, error) {
+	values := map[string]string{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "=") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		values[parts[0]] = parts[1]
+	}
+
+	required := []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID"}
+	for _, key := range required {
+		if strings.TrimSpace(values[key]) == "" {
+			return nil, fmt.Errorf("TinyCloud Terraform environment is missing %s", key)
+		}
+	}
+	return values, nil
+}
+
+func RunTerraformInit(terraformExe, cwd string, args []string, stdin io.Reader, stdout, stderr io.Writer, terraformEnv map[string]string) (int, error) {
+	clearKeys := map[string]struct{}{
+		"ARM_ENDPOINT":          {},
+		"ARM_ENVIRONMENT":       {},
+		"ARM_METADATA_HOST":     {},
+		"ARM_METADATA_HOSTNAME": {},
+		"ARM_MSI_ENDPOINT":      {},
+		"ARM_USE_MSI":           {},
+	}
+
+	env := make([]string, 0, len(os.Environ())+len(terraformEnv))
+	for _, entry := range os.Environ() {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if _, skip := clearKeys[key]; skip {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env,
+		"ARM_SUBSCRIPTION_ID="+terraformEnv["ARM_SUBSCRIPTION_ID"],
+		"ARM_TENANT_ID="+terraformEnv["ARM_TENANT_ID"],
+	)
+
+	cmd := exec.Command(terraformExe, args...)
+	cmd.Dir = cwd
+	cmd.Env = env
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode(), nil
+		}
+		return 1, fmt.Errorf("run terraform init: %w", err)
+	}
+	return 0, nil
 }
