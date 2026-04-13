@@ -34,6 +34,51 @@ func TestRenderDetachedStartOutputIncludesBannerOnlyWhenRequested(t *testing.T) 
 	}
 }
 
+func TestRenderDetachedStartOutputOmitsEndpointTable(t *testing.T) {
+	t.Parallel()
+
+	output := renderDetachedStartOutput(terminalUI{}, true, "docker", startSummary{
+		RuntimeID:  "27e7a8d3708ed21ecc576d572e285978419d5be00ebcf55b73de6c97a01850d4",
+		Backend:    "docker",
+		Container:  "tinycloud-f886c962",
+		Image:      "tinycloud-azure",
+		Services:   "management,blob,queue,table,keyVault,serviceBus,appConfig,cosmos,dns,eventHubs",
+		Management: "http://127.0.0.1:4566",
+		Endpoints: map[string]string{
+			"management": "http://127.0.0.1:4566",
+			"blob":       "http://127.0.0.1:4577",
+		},
+	}, []string{"✓ build image", "✓ create container", "✓ wait for health"})
+
+	for _, fragment := range []string{
+		"TinyCloud CLI   backend: docker",
+		"Starting runtime",
+		"Runtime",
+		"status      ✓ running",
+		"runtime id  ● 27e7a8d3708ed21ecc576d572e285978419d5be00ebcf55b73de6c97a01850d4",
+		"backend     ● docker",
+		"container   ● tinycloud-f886c962",
+		"image       ● tinycloud-azure",
+		"services    ● management,blob,queue,table,keyVault,serviceBus,appConfig,cosmos,dns,eventHubs",
+		"management  ● http://127.0.0.1:4566",
+		"Next",
+		"  tinycloud status runtime",
+		"  tinycloud status services",
+		"  tinycloud logs -f",
+		"  tinycloud stop",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("renderDetachedStartOutput() missing %q in:\n%s", fragment, output)
+		}
+	}
+
+	for _, unwanted := range []string{"Endpoints", "NAME", "URL", "tinycloud endpoints"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("renderDetachedStartOutput() unexpectedly included %q in:\n%s", unwanted, output)
+		}
+	}
+}
+
 func TestParseStartOptionsDefaultsToDetached(t *testing.T) {
 	t.Parallel()
 

@@ -69,14 +69,6 @@ func renderDetachedStartOutput(ui terminalUI, showBanner bool, backend string, s
 	}
 	lines = append(lines, strings.TrimRight(ui.keyValues(items), "\n"))
 
-	if len(summary.Endpoints) > 0 {
-		lines = append(lines, "", "Endpoints")
-		lines = append(lines, strings.TrimRight(ui.renderTable(table{
-			headers: []string{"NAME", "URL"},
-			rows:    endpointRows(summary.Endpoints),
-		}), "\n"))
-	}
-
 	lines = append(lines, "", "Next", "  tinycloud status runtime", "  tinycloud status services", "  tinycloud logs -f", "  tinycloud stop")
 	return joinLines(lines...)
 }

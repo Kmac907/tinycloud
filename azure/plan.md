@@ -315,7 +315,7 @@ Apply middleware in this order:
   ```
 
 - Other commands such as `status`, `config`, `endpoints`, `stop`, `restart`, `wait`, and `logs` should not print the brand banner by default.
-- `start` should default to detached mode and should print the runtime identifier, backend, selected services, exposed endpoints, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
+- `start` should default to detached mode and should print the runtime identifier, backend, selected services, management URL when available, and the next useful commands such as `tinycloud status`, `tinycloud logs -f`, and `tinycloud stop`.
 - `start --attached` should print a concise runtime summary before streaming logs.
 - `status runtime`, `status services`, `config show`, and `endpoints` should have stable human-readable output by default and support machine-readable output formats such as JSON.
 - `status services` should render clearly in the terminal, for example as a compact table with service name, enabled state, health state, endpoint, and notes.

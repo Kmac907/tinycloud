@@ -468,7 +468,7 @@ Those repo-root wrappers now build through repo-root-relative command package pa
 The human-readable terminal UX now follows a more structured LocalStack-style shape:
 
 - interactive `tinycloud start` is the only command that prints the approved TinyCloud ASCII banner
-- default `tinycloud start` prints lifecycle steps, a runtime summary, endpoint table, and the next useful follow-up commands, then returns control to the shell
+- default `tinycloud start` prints lifecycle steps, a runtime summary, and the next useful follow-up commands, then returns control to the shell
 - `tinycloud start --attached` is the explicit foreground mode when you want startup output followed by live logs
 - `tinycloud status runtime` and `tinycloud status services` render terminal tables instead of raw key=value lines
 - `tinycloud status services` is the runtime-status view, while `tinycloud services list` is the config/catalog inventory view
