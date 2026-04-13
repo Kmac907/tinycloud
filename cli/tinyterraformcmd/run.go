@@ -10,7 +10,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 )
+
+var runtimeExeSeq atomic.Uint64
 
 func Main() {
 	os.Exit(Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
@@ -417,7 +420,7 @@ func BuildTinyCloudExe(repoRoot, runtimeRoot string) (string, error) {
 		return "", fmt.Errorf("create tinyterraform runtime root: %w", err)
 	}
 
-	tinycloudExe := filepath.Join(runtimeRoot, "tinycloud.exe")
+	tinycloudExe := RuntimeExePath(runtimeRoot, "tinycloud")
 	goWorkdir := ResolveTinyCloudGoWorkdir(repoRoot)
 	mainPackage := ResolveTinyCloudMainPackage(repoRoot)
 
@@ -430,6 +433,11 @@ func BuildTinyCloudExe(repoRoot, runtimeRoot string) (string, error) {
 	}
 
 	return tinycloudExe, nil
+}
+
+func RuntimeExePath(runtimeRoot, base string) string {
+	seq := runtimeExeSeq.Add(1)
+	return filepath.Join(runtimeRoot, fmt.Sprintf("%s-%d-%d.exe", base, os.Getpid(), seq))
 }
 
 func fileExists(path string) bool {

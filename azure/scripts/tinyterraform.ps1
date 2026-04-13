@@ -110,6 +110,15 @@ function Resolve-TinyTerraformRuntimeRoot {
     return (Join-Path $repoRoot ".tinyterraform-runtime")
 }
 
+function New-RuntimeExePath {
+    param(
+        [string]$RuntimeRoot,
+        [string]$BaseName
+    )
+
+    return (Join-Path $RuntimeRoot ($BaseName + "-" + [guid]::NewGuid().ToString("N") + ".exe"))
+}
+
 function Normalize-TerraformArgs {
     param([string[]]$InputArgs)
 
@@ -204,8 +213,8 @@ $shimDir = Join-Path $runtimeRoot "shim"
 $serverStdout = Join-Path $runtimeRoot "tinycloud.stdout.log"
 $serverStderr = Join-Path $runtimeRoot "tinycloud.stderr.log"
 $shimLog = Join-Path $runtimeRoot "azshim.log"
-$tinycloudExe = Join-Path $runtimeRoot "tinycloud.exe"
-$tinyterraformExe = Join-Path $runtimeRoot "tinyterraform.exe"
+$tinycloudExe = New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinycloud"
+$tinyterraformExe = New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinyterraform"
 $hostsPath = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
 $hostsStartMarker = "# tinycloud terraform begin"
 $hostsEndMarker = "# tinycloud terraform end"

@@ -12,6 +12,19 @@ import (
 	"testing"
 )
 
+func runtimeExeMatches(t *testing.T, runtimeRoot, prefix string) []string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(runtimeRoot, prefix+"-*.exe"))
+	if err != nil {
+		t.Fatalf("Glob(%q) error = %v", filepath.Join(runtimeRoot, prefix+"-*.exe"), err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("no %s helper executables found under %s", prefix, runtimeRoot)
+	}
+	return matches
+}
+
 func TestRunERequiresArguments(t *testing.T) {
 	t.Parallel()
 
@@ -308,9 +321,7 @@ func TestTinyTerraformScriptHonorsMainPackageOverrideOnInit(t *testing.T) {
 	if strings.Contains(got, "Resetting TinyCloud runtime state for terraform init") {
 		t.Fatalf("stdout = %q, want launcher-owned init path without wrapper reset message", got)
 	}
-	if _, err := os.Stat(filepath.Join(workingDir, "tinyterraform-runtime", "tinyterraform.exe")); err != nil {
-		t.Fatalf("tinyterraform launcher binary was not created: %v", err)
-	}
+	runtimeExeMatches(t, filepath.Join(workingDir, "tinyterraform-runtime"), "tinyterraform")
 }
 
 func TestTinyTerraformScriptHonorsGoWorkdirOverrideOnInit(t *testing.T) {
@@ -510,12 +521,8 @@ func TestRepoRootTinyTerraformScriptUsesRepoRootDefaultsOnInit(t *testing.T) {
 	if strings.Contains(got, "Resetting TinyCloud runtime state for terraform init") {
 		t.Fatalf("stdout = %q, want launcher-owned init path without wrapper reset message", got)
 	}
-	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinyterraform.exe")); err != nil {
-		t.Fatalf("repo-root default tinyterraform launcher was not created: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
-		t.Fatalf("repo-root default tinyterraform runtime was not created: %v", err)
-	}
+	runtimeExeMatches(t, runtimeRoot, "tinyterraform")
+	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 }
 
 func TestRepoRootTinyTerraformScriptDoesNotRequireAzureWrapperForPassthrough(t *testing.T) {
@@ -702,9 +709,7 @@ func TestRepoRootGoRunTopLevelTinyTerraformInitDoesNotRequireScript(t *testing.T
 	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT -chdir="+workingDir+" init") {
 		t.Fatalf("stdout = %q, want SHIM_INIT init output", got)
 	}
-	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
-		t.Fatalf("tinycloud runtime binary was not created: %v", err)
-	}
+	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 }
 
 func TestRepoRootGoRunAzureTinyTerraformInitDoesNotRequireScript(t *testing.T) {
@@ -747,9 +752,7 @@ func TestRepoRootGoRunAzureTinyTerraformInitDoesNotRequireScript(t *testing.T) {
 	if got := stdout.String(); !strings.Contains(got, "SHIM_INIT -chdir="+workingDir+" init") {
 		t.Fatalf("stdout = %q, want SHIM_INIT init output", got)
 	}
-	if _, err := os.Stat(filepath.Join(runtimeRoot, "tinycloud.exe")); err != nil {
-		t.Fatalf("tinycloud runtime binary was not created: %v", err)
-	}
+	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 }
 
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {
