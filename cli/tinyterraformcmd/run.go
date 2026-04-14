@@ -58,7 +58,7 @@ func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 		return 1, fmt.Errorf("resolve current directory: %w", err)
 	}
 
-	wrapperEnv, err := RuntimeWrapperEnv(cwd)
+	wrapperEnv, err := RuntimeWrapperEnv(cwd, lookPath)
 	if err != nil {
 		return 1, err
 	}
@@ -148,8 +148,13 @@ func RunCommandWithEnv(command string, args, env []string, stdin io.Reader, stdo
 	return 0, nil
 }
 
-func RuntimeWrapperEnv(cwd string) ([]string, error) {
+func RuntimeWrapperEnv(cwd string, lookPath func(string) (string, error)) ([]string, error) {
 	repoRoot, err := ResolveTinyCloudRepoRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	terraformExe, err := ResolveTerraformExe(lookPath)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +165,11 @@ func RuntimeWrapperEnv(cwd string) ([]string, error) {
 		return nil, err
 	}
 
-	return append(os.Environ(), "TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE="+tinycloudExe), nil
+	return append(
+		os.Environ(),
+		"TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE="+tinycloudExe,
+		"TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE="+terraformExe,
+	), nil
 }
 
 func ResolveTerraformExe(lookPath func(string) (string, error)) (string, error) {

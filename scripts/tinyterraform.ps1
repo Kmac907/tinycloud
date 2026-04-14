@@ -272,6 +272,10 @@ if ([string]::IsNullOrWhiteSpace($goCache)) {
 }
 
 function Resolve-TerraformExe {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE) -and (Test-Path $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE)) {
+        return (Resolve-Path -LiteralPath $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE).Path
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($env:TERRAFORM_EXE) -and (Test-Path $env:TERRAFORM_EXE)) {
         return (Resolve-Path -LiteralPath $env:TERRAFORM_EXE).Path
     }

@@ -39,7 +39,15 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE)) {
     Write-Error "missing launcher-built tinycloud helper"
     exit 1
 }
-Write-Output ("WRAPPER_OK " + ($Args -join " "))
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE"
+    exit 1
+}
+if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE)) {
+    Write-Error "missing launcher-resolved terraform exe"
+    exit 1
+}
+Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " args=" + ($Args -join " "))
 `
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
@@ -791,6 +799,10 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 	workingDir := t.TempDir()
 	scriptPath := filepath.Join(workingDir, "probe-wrapper.ps1")
 	writeRuntimeWrapperProbe(t, scriptPath)
+	override := filepath.Join(workingDir, "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho PROBE_TERRAFORM %*\r\nexit /b 0\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
 
 	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
 	cmd := exec.Command("go", "run", ".\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "apply", "-auto-approve")
@@ -798,6 +810,7 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 	cmd.Env = append(
 		os.Environ(),
 		"GOCACHE="+filepath.Join(workingDir, "gocache"),
+		"TERRAFORM_EXE="+override,
 		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
 		"TINYTERRAFORM_SCRIPT="+scriptPath,
 	)
@@ -811,8 +824,8 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "WRAPPER_OK ") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK apply output", got)
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" args=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 }
@@ -832,6 +845,10 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 	workingDir := t.TempDir()
 	scriptPath := filepath.Join(workingDir, "probe-wrapper.ps1")
 	writeRuntimeWrapperProbe(t, scriptPath)
+	override := filepath.Join(workingDir, "terraform.cmd")
+	if err := os.WriteFile(override, []byte("@echo off\r\necho PROBE_TERRAFORM %*\r\nexit /b 0\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(terraform.cmd) error = %v", err)
+	}
 
 	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
 	cmd := exec.Command("go", "run", ".\\azure\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "apply", "-auto-approve")
@@ -839,6 +856,7 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 	cmd.Env = append(
 		os.Environ(),
 		"GOCACHE="+filepath.Join(workingDir, "gocache"),
+		"TERRAFORM_EXE="+override,
 		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
 		"TINYTERRAFORM_SCRIPT="+scriptPath,
 	)
@@ -852,8 +870,8 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "WRAPPER_OK ") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK apply output", got)
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" args=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 }
