@@ -47,7 +47,15 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE)) {
     Write-Error "missing launcher-resolved terraform exe"
     exit 1
 }
-Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " args=" + ($Args -join " "))
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH"
+    exit 1
+}
+if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH)) {
+    Write-Error "missing launcher-created terraform override"
+    exit 1
+}
+Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " override=" + $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH + " args=" + ($Args -join " "))
 `
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
@@ -824,10 +832,14 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" args=") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override apply output", got)
+	overridePath := filepath.Join(workingDir, "tinycloud_providers_override.tf")
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" args=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
+	if _, err := os.Stat(overridePath); !os.IsNotExist(err) {
+		t.Fatalf("override file still exists after launcher cleanup, err = %v", err)
+	}
 }
 
 func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *testing.T) {
@@ -870,10 +882,14 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" args=") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override apply output", got)
+	overridePath := filepath.Join(workingDir, "tinycloud_providers_override.tf")
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" args=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
+	if _, err := os.Stat(overridePath); !os.IsNotExist(err) {
+		t.Fatalf("override file still exists after launcher cleanup, err = %v", err)
+	}
 }
 
 func TestTerraformSubcommandSkipsFlags(t *testing.T) {

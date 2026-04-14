@@ -58,9 +58,17 @@ func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 		return 1, fmt.Errorf("resolve current directory: %w", err)
 	}
 
-	wrapperEnv, err := RuntimeWrapperEnv(cwd, lookPath)
+	terraformDir, err := ResolveTerraformWorkingDir(cwd, args)
 	if err != nil {
 		return 1, err
+	}
+
+	wrapperEnv, cleanup, err := RuntimeWrapperEnv(cwd, terraformDir, lookPath)
+	if err != nil {
+		return 1, err
+	}
+	if cleanup != nil {
+		defer cleanup()
 	}
 
 	scriptPath, err := ResolveTinyTerraformScript(cwd)
@@ -148,28 +156,34 @@ func RunCommandWithEnv(command string, args, env []string, stdin io.Reader, stdo
 	return 0, nil
 }
 
-func RuntimeWrapperEnv(cwd string, lookPath func(string) (string, error)) ([]string, error) {
+func RuntimeWrapperEnv(cwd, terraformDir string, lookPath func(string) (string, error)) ([]string, func(), error) {
 	repoRoot, err := ResolveTinyCloudRepoRoot(cwd)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	terraformExe, err := ResolveTerraformExe(lookPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	runtimeRoot := ResolveTinyTerraformRuntimeRoot(repoRoot)
 	tinycloudExe, err := BuildTinyCloudExe(repoRoot, runtimeRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	overridePath, cleanup, err := EnsureTerraformOverride(terraformDir)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return append(
 		os.Environ(),
 		"TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE="+tinycloudExe,
 		"TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE="+terraformExe,
-	), nil
+		"TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH="+overridePath,
+	), cleanup, nil
 }
 
 func ResolveTerraformExe(lookPath func(string) (string, error)) (string, error) {
@@ -487,6 +501,62 @@ func GoBuildEnv(repoRoot string) []string {
 		return env
 	}
 	return append(env, "GOCACHE="+filepath.Join(repoRoot, ".gocache"))
+}
+
+func ResolveTerraformWorkingDir(cwd string, args []string) (string, error) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-chdir":
+			if i+1 >= len(args) {
+				return "", errors.New("terraform -chdir requires a value")
+			}
+			return resolveTerraformDirValue(cwd, args[i+1]), nil
+		case strings.HasPrefix(arg, "-chdir="):
+			value := strings.TrimPrefix(arg, "-chdir=")
+			if value == "" {
+				return "", errors.New("terraform -chdir requires a value")
+			}
+			return resolveTerraformDirValue(cwd, value), nil
+		}
+	}
+	return cwd, nil
+}
+
+func resolveTerraformDirValue(cwd, value string) string {
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Clean(filepath.Join(cwd, value))
+}
+
+func EnsureTerraformOverride(terraformDir string) (string, func(), error) {
+	overridePath := filepath.Join(terraformDir, "tinycloud_providers_override.tf")
+	if err := os.MkdirAll(terraformDir, 0o755); err != nil {
+		return "", nil, fmt.Errorf("create terraform working directory: %w", err)
+	}
+
+	overrideBody := strings.Join([]string{
+		`provider "azurerm" {`,
+		`  features {}`,
+		`  use_cli = true`,
+		`  resource_provider_registrations = "none"`,
+		``,
+		`  enhanced_validation {`,
+		`    locations = false`,
+		`    resource_providers = false`,
+		`  }`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(overridePath, []byte(overrideBody), 0o644); err != nil {
+		return "", nil, fmt.Errorf("write terraform override: %w", err)
+	}
+
+	cleanup := func() {
+		_ = os.Remove(overridePath)
+	}
+	return overridePath, cleanup, nil
 }
 
 func TerraformInitEnv(raw string) (map[string]string, error) {

@@ -207,7 +207,16 @@ $tinycloudMainPackage = Resolve-TinyCloudMainPackage
 $tinycloudGoWorkdir = Resolve-TinyCloudGoWorkdir
 $runtimeRoot = Resolve-TinyTerraformRuntimeRoot
 $terraformDir = (Get-Location).Path
-$overridePath = Join-Path $terraformDir "tinycloud_providers_override.tf"
+$launcherOverridePath = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH)) {
+    $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH
+} else {
+    $null
+}
+$overridePath = if (-not [string]::IsNullOrWhiteSpace($launcherOverridePath)) {
+    $launcherOverridePath
+} else {
+    Join-Path $terraformDir "tinycloud_providers_override.tf"
+}
 $dataRoot = Join-Path $runtimeRoot "data"
 $shimDir = Join-Path $runtimeRoot "shim"
 $serverStdout = Join-Path $runtimeRoot "tinycloud.stdout.log"
@@ -538,7 +547,9 @@ provider "azurerm" {
 }
 "@
 
-Set-Content -Path $overridePath -Value $overrideBody
+if ([string]::IsNullOrWhiteSpace($launcherOverridePath)) {
+    Set-Content -Path $overridePath -Value $overrideBody
+}
 
 $server = $null
 try {
@@ -568,6 +579,8 @@ try {
     if ($server -and -not $server.HasExited) {
         Stop-Process -Id $server.Id -Force
     }
-    Remove-Item -LiteralPath $overridePath -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrWhiteSpace($launcherOverridePath)) {
+        Remove-Item -LiteralPath $overridePath -ErrorAction SilentlyContinue
+    }
     Remove-HostsBlock
 }
