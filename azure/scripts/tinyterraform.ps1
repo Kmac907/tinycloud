@@ -213,7 +213,11 @@ $shimDir = Join-Path $runtimeRoot "shim"
 $serverStdout = Join-Path $runtimeRoot "tinycloud.stdout.log"
 $serverStderr = Join-Path $runtimeRoot "tinycloud.stderr.log"
 $shimLog = Join-Path $runtimeRoot "azshim.log"
-$tinycloudExe = New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinycloud"
+$tinycloudExe = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE)) {
+    (Resolve-Path -LiteralPath $env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE).Path
+} else {
+    New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinycloud"
+}
 $tinyterraformExe = New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinyterraform"
 $hostsPath = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
 $hostsStartMarker = "# tinycloud terraform begin"
@@ -423,9 +427,11 @@ if ($requiresPrivilegedRuntime -and (Get-NetTCPConnection -LocalPort 443 -ErrorA
 
 Push-Location $tinycloudGoWorkdir
 try {
-    & go build -o $tinycloudExe $tinycloudMainPackage
-    if ($LASTEXITCODE -ne 0) {
-        throw "failed to build tinycloud"
+    if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE)) {
+        & go build -o $tinycloudExe $tinycloudMainPackage
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to build tinycloud"
+        }
     }
 
     if ($terraformSubcommand -eq "init") {

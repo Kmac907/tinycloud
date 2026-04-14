@@ -58,13 +58,18 @@ func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func()
 		return 1, fmt.Errorf("resolve current directory: %w", err)
 	}
 
+	wrapperEnv, err := RuntimeWrapperEnv(cwd)
+	if err != nil {
+		return 1, err
+	}
+
 	scriptPath, err := ResolveTinyTerraformScript(cwd)
 	if err != nil {
 		return 1, err
 	}
 
 	commandArgs := BuildPowerShellCommandArgs(scriptPath, args)
-	return RunCommand(powerShellExe, commandArgs, stdin, stdout, stderr)
+	return RunCommandWithEnv(powerShellExe, commandArgs, wrapperEnv, stdin, stdout, stderr)
 }
 
 func TerraformSubcommand(args []string) string {
@@ -122,7 +127,14 @@ func RequestsTerraformHelp(args []string) bool {
 }
 
 func RunCommand(command string, args []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
+	return RunCommandWithEnv(command, args, nil, stdin, stdout, stderr)
+}
+
+func RunCommandWithEnv(command string, args, env []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	cmd := exec.Command(command, args...)
+	if env != nil {
+		cmd.Env = env
+	}
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -134,6 +146,21 @@ func RunCommand(command string, args []string, stdin io.Reader, stdout, stderr i
 		return 1, fmt.Errorf("run command %q: %w", command, err)
 	}
 	return 0, nil
+}
+
+func RuntimeWrapperEnv(cwd string) ([]string, error) {
+	repoRoot, err := ResolveTinyCloudRepoRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	runtimeRoot := ResolveTinyTerraformRuntimeRoot(repoRoot)
+	tinycloudExe, err := BuildTinyCloudExe(repoRoot, runtimeRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(os.Environ(), "TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE="+tinycloudExe), nil
 }
 
 func ResolveTerraformExe(lookPath func(string) (string, error)) (string, error) {
