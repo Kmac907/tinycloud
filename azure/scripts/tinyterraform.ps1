@@ -424,6 +424,7 @@ exit 1
 Set-Content -Path (Join-Path $shimDir "azshim.ps1") -Value $azShimScript
 
 $env:GOCACHE = $goCache
+$env:TINYCLOUD_BACKEND = "process"
 $env:TINYCLOUD_DATA_ROOT = $dataRoot
 $env:TINYCLOUD_ADVERTISE_HOST = "management.azure.com"
 $env:TINYCLOUD_MGMT_HTTP_PORT = "4566"
@@ -433,48 +434,58 @@ $env:ARM_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 $env:ARM_USE_CLI = "true"
 $env:TINYTERRAFORM_AZ_LOG = $shimLog
 $env:PATH = "$shimDir;$env:PATH"
+$launcherRuntimeReady = `
+    -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID) -and `
+    -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID) -and `
+    -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)
 
-if ($requiresPrivilegedRuntime -and (Get-NetTCPConnection -LocalPort 443 -ErrorAction SilentlyContinue)) {
+if ($requiresPrivilegedRuntime -and -not $launcherRuntimeReady -and (Get-NetTCPConnection -LocalPort 443 -ErrorAction SilentlyContinue)) {
     throw "port 443 is already in use; tinyterraform cannot bind management.azure.com locally"
 }
 
-Push-Location $tinycloudGoWorkdir
-try {
-    if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE)) {
-        & go build -o $tinycloudExe $tinycloudMainPackage
-        if ($LASTEXITCODE -ne 0) {
-            throw "failed to build tinycloud"
-        }
-    }
-
-    if ($terraformSubcommand -eq "init") {
-        Write-Host "Resetting TinyCloud runtime state for terraform init"
-        & $tinycloudExe reset
-        if ($LASTEXITCODE -ne 0) {
-            throw "failed to reset tinycloud state"
-        }
-    }
-
-    & $tinycloudExe init
-    if ($LASTEXITCODE -ne 0) {
-        throw "failed to initialize tinycloud state"
-    }
-
-    $envOutput = & $tinycloudExe env terraform
-    if ($LASTEXITCODE -ne 0) {
-        throw "failed to load TinyCloud Terraform environment"
-    }
-} finally {
-    Pop-Location
-}
-
 $envMap = @{}
-foreach ($line in ($envOutput -split "`r?`n")) {
-    if ([string]::IsNullOrWhiteSpace($line) -or -not $line.Contains("=")) {
-        continue
+if ($launcherRuntimeReady) {
+    $envMap["ARM_SUBSCRIPTION_ID"] = $env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID
+    $envMap["ARM_TENANT_ID"] = $env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID
+    $envMap["TINY_MGMT_HTTPS_CERT"] = $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT
+} else {
+    Push-Location $tinycloudGoWorkdir
+    try {
+        if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE)) {
+            & go build -o $tinycloudExe $tinycloudMainPackage
+            if ($LASTEXITCODE -ne 0) {
+                throw "failed to build tinycloud"
+            }
+        }
+
+        if ($terraformSubcommand -eq "init") {
+            Write-Host "Resetting TinyCloud runtime state for terraform init"
+            & $tinycloudExe reset
+            if ($LASTEXITCODE -ne 0) {
+                throw "failed to reset tinycloud state"
+            }
+        }
+
+        & $tinycloudExe init
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to initialize tinycloud state"
+        }
+
+        $envOutput = & $tinycloudExe env terraform
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to load TinyCloud Terraform environment"
+        }
+    } finally {
+        Pop-Location
     }
-    $parts = $line.Split("=", 2)
-    $envMap[$parts[0]] = $parts[1]
+
+    foreach ($line in ($envOutput -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line) -or -not $line.Contains("=")) {
+            continue
+        }
+        $parts = $line.Split("=", 2)
+        $envMap[$parts[0]] = $parts[1]
+    }
 }
 
 $terraformEnvAllowList = @(
@@ -553,20 +564,22 @@ if ([string]::IsNullOrWhiteSpace($launcherOverridePath)) {
 
 $server = $null
 try {
-    $server = Start-Process -FilePath $tinycloudExe -ArgumentList "start" -PassThru -RedirectStandardOutput $serverStdout -RedirectStandardError $serverStderr -WorkingDirectory $repoRoot
+    if (-not $launcherRuntimeReady) {
+        $server = Start-Process -FilePath $tinycloudExe -ArgumentList "start" -PassThru -RedirectStandardOutput $serverStdout -RedirectStandardError $serverStderr -WorkingDirectory $repoRoot
 
-    $healthy = $false
-    for ($i = 0; $i -lt 40; $i++) {
-        try {
-            Invoke-RestMethod $healthEndpoint -TimeoutSec 2 | Out-Null
-            $healthy = $true
-            break
-        } catch {
-            Start-Sleep -Milliseconds 500
+        $healthy = $false
+        for ($i = 0; $i -lt 40; $i++) {
+            try {
+                Invoke-RestMethod $healthEndpoint -TimeoutSec 2 | Out-Null
+                $healthy = $true
+                break
+            } catch {
+                Start-Sleep -Milliseconds 500
+            }
         }
-    }
-    if (-not $healthy) {
-        throw "TinyCloud did not become healthy on $healthEndpoint"
+        if (-not $healthy) {
+            throw "TinyCloud did not become healthy on $healthEndpoint"
+        }
     }
 
     foreach ($key in $terraformEnvAllowList) {

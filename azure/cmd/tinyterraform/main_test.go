@@ -55,7 +55,24 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH)) {
     Write-Error "missing launcher-created terraform override"
     exit 1
 }
-Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " override=" + $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH + " args=" + ($Args -join " "))
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID"
+    exit 1
+}
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID"
+    exit 1
+}
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT"
+    exit 1
+}
+if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)) {
+    Write-Error "missing launcher runtime cert"
+    exit 1
+}
+Invoke-RestMethod "http://127.0.0.1:4566/_admin/healthz" -TimeoutSec 2 | Out-Null
+Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " override=" + $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH + " cert=" + $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT + " args=" + ($Args -join " "))
 `
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
@@ -833,8 +850,8 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 
 	got := stdout.String()
 	overridePath := filepath.Join(workingDir, "tinycloud_providers_override.tf")
-	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" args=") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path apply output", got)
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" cert=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path cert apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 	if _, err := os.Stat(overridePath); !os.IsNotExist(err) {
@@ -883,8 +900,8 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 
 	got := stdout.String()
 	overridePath := filepath.Join(workingDir, "tinycloud_providers_override.tf")
-	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" args=") || !strings.Contains(got, "apply -auto-approve") {
-		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path apply output", got)
+	if !strings.Contains(got, "WRAPPER_OK terraform="+override+" override="+overridePath+" cert=") || !strings.Contains(got, "apply -auto-approve") {
+		t.Fatalf("stdout = %q, want WRAPPER_OK terraform override-path cert apply output", got)
 	}
 	runtimeExeMatches(t, runtimeRoot, "tinycloud")
 	if _, err := os.Stat(overridePath); !os.IsNotExist(err) {

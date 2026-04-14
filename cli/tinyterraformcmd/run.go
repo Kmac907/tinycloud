@@ -2,15 +2,18 @@ package tinyterraformcmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 var runtimeExeSeq atomic.Uint64
@@ -178,12 +181,195 @@ func RuntimeWrapperEnv(cwd, terraformDir string, lookPath func(string) (string, 
 		return nil, nil, err
 	}
 
+	runtimeState, runtimeCleanup, err := EnsureLauncherTinyCloudRuntime(repoRoot, runtimeRoot, tinycloudExe)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+
+	combinedCleanup := func() {
+		if runtimeCleanup != nil {
+			runtimeCleanup()
+		}
+		if cleanup != nil {
+			cleanup()
+		}
+	}
+
 	return append(
 		os.Environ(),
 		"TINYTERRAFORM_LAUNCHER_TINYCLOUD_EXE="+tinycloudExe,
 		"TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE="+terraformExe,
 		"TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH="+overridePath,
-	), cleanup, nil
+		"TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID="+runtimeState["ARM_SUBSCRIPTION_ID"],
+		"TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID="+runtimeState["ARM_TENANT_ID"],
+		"TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT="+runtimeState["TINY_MGMT_HTTPS_CERT"],
+	), combinedCleanup, nil
+}
+
+func EnsureLauncherTinyCloudRuntime(repoRoot, runtimeRoot, tinycloudExe string) (map[string]string, func(), error) {
+	runtimeEnv := TinyCloudRuntimeEnv(repoRoot, runtimeRoot)
+
+	if _, err := os.Stat(filepath.Join(ResolveLauncherTinyCloudRuntimeRoot(runtimeRoot), "active-runtime.json")); err == nil {
+		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
+	}
+
+	if code, err := RunCommandWithEnv(tinycloudExe, []string{"init"}, runtimeEnv, nil, io.Discard, io.Discard); err != nil {
+		return nil, nil, fmt.Errorf("initialize tinycloud runtime: %w", err)
+	} else if code != 0 {
+		return nil, nil, fmt.Errorf("initialize tinycloud runtime: tinycloud init exited %d", code)
+	}
+
+	startStdoutPath := filepath.Join(runtimeRoot, "tinycloud-launcher.stdout.log")
+	startStderrPath := filepath.Join(runtimeRoot, "tinycloud-launcher.stderr.log")
+	startStdout, err := os.Create(startStdoutPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create tinycloud launcher stdout log: %w", err)
+	}
+	startStderr, err := os.Create(startStderrPath)
+	if err != nil {
+		_ = startStdout.Close()
+		return nil, nil, fmt.Errorf("create tinycloud launcher stderr log: %w", err)
+	}
+
+	startCmd := exec.Command(tinycloudExe, "start")
+	startCmd.Dir = repoRoot
+	startCmd.Env = runtimeEnv
+	startCmd.Stdout = startStdout
+	startCmd.Stderr = startStderr
+	if err := startCmd.Start(); err != nil {
+		_ = startStdout.Close()
+		_ = startStderr.Close()
+		return nil, nil, fmt.Errorf("start tinycloud runtime: %w", err)
+	}
+
+	if err := WaitForTinyCloudHealth("http://127.0.0.1:4566/_admin/healthz", 40, 500*time.Millisecond); err != nil {
+		if startCmd.Process != nil {
+			_ = startCmd.Process.Kill()
+			_, _ = startCmd.Process.Wait()
+		}
+		_ = startStdout.Close()
+		_ = startStderr.Close()
+		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
+		return nil, nil, err
+	}
+	if startCmd.Process != nil {
+		_ = startCmd.Process.Kill()
+		_, _ = startCmd.Process.Wait()
+	}
+	_ = startStdout.Close()
+	_ = startStderr.Close()
+	record, _ := LoadLauncherRuntimeRecord(ResolveLauncherTinyCloudRuntimeRoot(runtimeRoot))
+
+	envMap, err := RuntimeWrapperTerraformEnv(tinycloudExe, runtimeEnv)
+	if err != nil {
+		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
+		return nil, nil, err
+	}
+
+	cleanup := func() {
+		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
+		if record.PID > 0 {
+			KillProcess(record.PID)
+		}
+		WaitForFileRelease(tinycloudExe, 40, 250*time.Millisecond)
+		if record.DaemonPath != "" {
+			WaitForFileRelease(record.DaemonPath, 40, 250*time.Millisecond)
+		}
+	}
+
+	return envMap, cleanup, nil
+}
+
+func TinyCloudRuntimeEnv(repoRoot, runtimeRoot string) []string {
+	return append(
+		GoBuildEnv(repoRoot),
+		"TINYCLOUD_BACKEND=process",
+		"TINYCLOUD_RUNTIME_ROOT="+ResolveLauncherTinyCloudRuntimeRoot(runtimeRoot),
+		"TINYCLOUD_DATA_ROOT="+filepath.Join(runtimeRoot, "data"),
+		"TINYCLOUD_ADVERTISE_HOST=management.azure.com",
+		"TINYCLOUD_MGMT_HTTP_PORT=4566",
+		"TINYCLOUD_MGMT_HTTPS_PORT=443",
+	)
+}
+
+func ResolveLauncherTinyCloudRuntimeRoot(runtimeRoot string) string {
+	return filepath.Join(runtimeRoot, "tinycloud-runtime")
+}
+
+func WaitForTinyCloudHealth(endpoint string, attempts int, delay time.Duration) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	for i := 0; i < attempts; i++ {
+		resp, err := client.Get(endpoint)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
+			}
+		}
+		time.Sleep(delay)
+	}
+
+	return fmt.Errorf("TinyCloud did not become healthy on %s", endpoint)
+}
+
+func WaitForFileRelease(path string, attempts int, delay time.Duration) {
+	for i := 0; i < attempts; i++ {
+		file, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err == nil {
+			_ = file.Close()
+			return
+		}
+		if os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(delay)
+	}
+}
+
+type launcherRuntimeRecord struct {
+	PID        int    `json:"pid"`
+	DaemonPath string `json:"daemonPath"`
+}
+
+func LoadLauncherRuntimeRecord(runtimeRoot string) (launcherRuntimeRecord, error) {
+	body, err := os.ReadFile(filepath.Join(runtimeRoot, "active-runtime.json"))
+	if err != nil {
+		return launcherRuntimeRecord{}, err
+	}
+	var record launcherRuntimeRecord
+	if err := json.Unmarshal(body, &record); err != nil {
+		return launcherRuntimeRecord{}, err
+	}
+	return record, nil
+}
+
+func KillProcess(pid int) {
+	if pid <= 0 {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = process.Kill()
+	_, _ = process.Wait()
+}
+
+func RuntimeWrapperTerraformEnv(tinycloudExe string, runtimeEnv []string) (map[string]string, error) {
+	var envStdout bytes.Buffer
+	if code, err := RunCommandWithEnv(tinycloudExe, []string{"env", "terraform"}, runtimeEnv, nil, &envStdout, io.Discard); err != nil {
+		return nil, fmt.Errorf("load tinycloud terraform environment: %w", err)
+	} else if code != 0 {
+		return nil, fmt.Errorf("load tinycloud terraform environment: tinycloud env terraform exited %d", code)
+	}
+
+	values, err := ParseTerraformEnv(envStdout.String(), []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID", "TINY_MGMT_HTTPS_CERT"})
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 func ResolveTerraformExe(lookPath func(string) (string, error)) (string, error) {
@@ -560,6 +746,10 @@ func EnsureTerraformOverride(terraformDir string) (string, func(), error) {
 }
 
 func TerraformInitEnv(raw string) (map[string]string, error) {
+	return ParseTerraformEnv(raw, []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID"})
+}
+
+func ParseTerraformEnv(raw string, required []string) (map[string]string, error) {
 	values := map[string]string{}
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
@@ -570,7 +760,6 @@ func TerraformInitEnv(raw string) (map[string]string, error) {
 		values[parts[0]] = parts[1]
 	}
 
-	required := []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return nil, fmt.Errorf("TinyCloud Terraform environment is missing %s", key)

@@ -3,6 +3,7 @@ package tinyterraformcmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -126,5 +127,54 @@ func TestEnsureTerraformOverrideCreatesAndCleansUpFile(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(overridePath); !os.IsNotExist(err) {
 		t.Fatalf("override file still exists after cleanup, err = %v", err)
+	}
+}
+
+func TestResolveLauncherTinyCloudRuntimeRootUsesNestedRuntimeDirectory(t *testing.T) {
+	t.Parallel()
+
+	runtimeRoot := t.TempDir()
+	got := ResolveLauncherTinyCloudRuntimeRoot(runtimeRoot)
+	want := filepath.Join(runtimeRoot, "tinycloud-runtime")
+	if got != want {
+		t.Fatalf("ResolveLauncherTinyCloudRuntimeRoot() = %q, want %q", got, want)
+	}
+}
+
+func TestTinyCloudRuntimeEnvUsesIsolatedRuntimeAndDataRoots(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	runtimeRoot := t.TempDir()
+	env := TinyCloudRuntimeEnv(repoRoot, runtimeRoot)
+
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+
+	if got := values["TINYCLOUD_RUNTIME_ROOT"]; got != filepath.Join(runtimeRoot, "tinycloud-runtime") {
+		t.Fatalf("TINYCLOUD_RUNTIME_ROOT = %q, want %q", got, filepath.Join(runtimeRoot, "tinycloud-runtime"))
+	}
+	if got := values["TINYCLOUD_DATA_ROOT"]; got != filepath.Join(runtimeRoot, "data") {
+		t.Fatalf("TINYCLOUD_DATA_ROOT = %q, want %q", got, filepath.Join(runtimeRoot, "data"))
+	}
+	if got := values["TINYCLOUD_MGMT_HTTP_PORT"]; got != "4566" {
+		t.Fatalf("TINYCLOUD_MGMT_HTTP_PORT = %q, want %q", got, "4566")
+	}
+	if got := values["TINYCLOUD_MGMT_HTTPS_PORT"]; got != "443" {
+		t.Fatalf("TINYCLOUD_MGMT_HTTPS_PORT = %q, want %q", got, "443")
+	}
+}
+
+func TestParseTerraformEnvRequiresExpectedKeys(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseTerraformEnv("ARM_SUBSCRIPTION_ID=sub\n", []string{"ARM_SUBSCRIPTION_ID", "ARM_TENANT_ID"})
+	if err == nil {
+		t.Fatal("ParseTerraformEnv() error = nil, want missing-key error")
 	}
 }
