@@ -71,6 +71,16 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)) {
     Write-Error "missing launcher runtime cert"
     exit 1
 }
+if ($env:TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED -ne "1") {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED"
+    exit 1
+}
+$hostsPath = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_HOSTS_PATH)) { $env:TINYTERRAFORM_HOSTS_PATH } else { Join-Path $env:SystemRoot "System32\\drivers\\etc\\hosts" }
+$hostsContent = Get-Content -Raw $hostsPath
+if (-not $hostsContent.Contains("# tinycloud terraform begin")) {
+    Write-Error "missing launcher-managed hosts marker"
+    exit 1
+}
 Invoke-RestMethod "http://127.0.0.1:4566/_admin/healthz" -TimeoutSec 2 | Out-Null
 Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " override=" + $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH + " cert=" + $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT + " args=" + ($Args -join " "))
 `
@@ -830,6 +840,10 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 	}
 
 	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
+	hostsPath := filepath.Join(workingDir, "hosts")
+	if err := os.WriteFile(hostsPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile(hosts) error = %v", err)
+	}
 	cmd := exec.Command("go", "run", ".\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "apply", "-auto-approve")
 	cmd.Dir = repoRoot
 	cmd.Env = append(
@@ -838,6 +852,7 @@ func TestRepoRootGoRunTopLevelTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *
 		"TERRAFORM_EXE="+override,
 		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
 		"TINYTERRAFORM_SCRIPT="+scriptPath,
+		"TINYTERRAFORM_HOSTS_PATH="+hostsPath,
 	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -880,6 +895,10 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 	}
 
 	runtimeRoot := filepath.Join(workingDir, "tinyterraform-runtime")
+	hostsPath := filepath.Join(workingDir, "hosts")
+	if err := os.WriteFile(hostsPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile(hosts) error = %v", err)
+	}
 	cmd := exec.Command("go", "run", ".\\azure\\cmd\\tinyterraform", "--", "-chdir="+workingDir, "apply", "-auto-approve")
 	cmd.Dir = repoRoot
 	cmd.Env = append(
@@ -888,6 +907,7 @@ func TestRepoRootGoRunAzureTinyTerraformApplyBuildsTinyCloudBeforeWrapper(t *tes
 		"TERRAFORM_EXE="+override,
 		"TINYTERRAFORM_RUNTIME_ROOT="+runtimeRoot,
 		"TINYTERRAFORM_SCRIPT="+scriptPath,
+		"TINYTERRAFORM_HOSTS_PATH="+hostsPath,
 	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

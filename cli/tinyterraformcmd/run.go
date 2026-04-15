@@ -204,6 +204,7 @@ func RuntimeWrapperEnv(cwd, terraformDir string, lookPath func(string) (string, 
 		"TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID="+runtimeState["ARM_SUBSCRIPTION_ID"],
 		"TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID="+runtimeState["ARM_TENANT_ID"],
 		"TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT="+runtimeState["TINY_MGMT_HTTPS_CERT"],
+		"TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED=1",
 	), combinedCleanup, nil
 }
 
@@ -267,7 +268,16 @@ func EnsureLauncherTinyCloudRuntime(repoRoot, runtimeRoot, tinycloudExe string) 
 		return nil, nil, err
 	}
 
+	hostsCleanup, err := EnsureTinyTerraformHostsMapping()
+	if err != nil {
+		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
+		return nil, nil, err
+	}
+
 	cleanup := func() {
+		if hostsCleanup != nil {
+			hostsCleanup()
+		}
 		_, _ = RunCommandWithEnv(tinycloudExe, []string{"stop"}, runtimeEnv, nil, io.Discard, io.Discard)
 		if record.PID > 0 {
 			KillProcess(record.PID)
@@ -279,6 +289,76 @@ func EnsureLauncherTinyCloudRuntime(repoRoot, runtimeRoot, tinycloudExe string) 
 	}
 
 	return envMap, cleanup, nil
+}
+
+func EnsureTinyTerraformHostsMapping() (func(), error) {
+	hostsPath, err := ResolveTinyTerraformHostsPath()
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := os.ReadFile(hostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("read hosts file: %w", err)
+	}
+
+	existing := string(content)
+	if strings.Contains(existing, tinyterraformHostsStartMarker()) {
+		return nil, errors.New("hosts file already contains TinyCloud Terraform markers")
+	}
+
+	block := tinyterraformHostsBlock()
+	if err := os.WriteFile(hostsPath, append(content, []byte(block)...), 0o644); err != nil {
+		return nil, fmt.Errorf("write hosts file: %w", err)
+	}
+
+	return func() {
+		_ = RemoveTinyTerraformHostsMapping()
+	}, nil
+}
+
+func RemoveTinyTerraformHostsMapping() error {
+	hostsPath, err := ResolveTinyTerraformHostsPath()
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(hostsPath)
+	if err != nil {
+		return err
+	}
+	updated := strings.ReplaceAll(string(content), tinyterraformHostsBlock(), "")
+	if updated == string(content) {
+		updated = strings.ReplaceAll(updated, strings.ReplaceAll(tinyterraformHostsBlock(), "\r\n", "\n"), "")
+	}
+	if updated == string(content) {
+		return nil
+	}
+	return os.WriteFile(hostsPath, []byte(updated), 0o644)
+}
+
+func tinyterraformHostsStartMarker() string {
+	return "# tinycloud terraform begin"
+}
+
+func tinyterraformHostsEndMarker() string {
+	return "# tinycloud terraform end"
+}
+
+func tinyterraformHostsBlock() string {
+	return "\r\n" + tinyterraformHostsStartMarker() + "\r\n127.0.0.1 management.azure.com\r\n" + tinyterraformHostsEndMarker() + "\r\n"
+}
+
+func ResolveTinyTerraformHostsPath() (string, error) {
+	if value := strings.TrimSpace(os.Getenv("TINYTERRAFORM_HOSTS_PATH")); value != "" {
+		return value, nil
+	}
+
+	systemRoot := os.Getenv("SystemRoot")
+	if strings.TrimSpace(systemRoot) == "" {
+		return "", errors.New("SystemRoot is not set; cannot locate hosts file")
+	}
+	return filepath.Join(systemRoot, "System32", "drivers", "etc", "hosts"), nil
 }
 
 func TinyCloudRuntimeEnv(repoRoot, runtimeRoot string) []string {

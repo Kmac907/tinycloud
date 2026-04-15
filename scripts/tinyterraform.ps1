@@ -152,6 +152,14 @@ function Resolve-TinyTerraformRuntimeRoot {
     return (Join-Path $repoRoot ".tinyterraform-runtime")
 }
 
+function Resolve-TinyTerraformHostsPath {
+    if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_HOSTS_PATH)) {
+        return $env:TINYTERRAFORM_HOSTS_PATH
+    }
+
+    return (Join-Path $env:SystemRoot "System32\drivers\etc\hosts")
+}
+
 function New-RuntimeExePath {
     param(
         [string]$RuntimeRoot,
@@ -270,7 +278,7 @@ $tinycloudExe = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHE
     New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinycloud"
 }
 $tinyterraformExe = New-RuntimeExePath -RuntimeRoot $runtimeRoot -BaseName "tinyterraform"
-$hostsPath = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+$hostsPath = Resolve-TinyTerraformHostsPath
 $hostsStartMarker = "# tinycloud terraform begin"
 $hostsEndMarker = "# tinycloud terraform end"
 $healthEndpoint = "http://127.0.0.1:4566/_admin/healthz"
@@ -480,6 +488,7 @@ $launcherRuntimeReady = `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID) -and `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID) -and `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)
+$launcherHostsMapped = $env:TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED -eq "1"
 
 if ($requiresPrivilegedRuntime -and -not $launcherRuntimeReady -and (Get-NetTCPConnection -LocalPort 443 -ErrorAction SilentlyContinue)) {
     throw "port 443 is already in use; tinyterraform cannot bind management.azure.com locally"
@@ -580,12 +589,14 @@ if (-not $trusted) {
 }
 
 $hostsContent = Get-Content -Raw $hostsPath
-if ($hostsContent.Contains($hostsStartMarker)) {
+if (-not $launcherHostsMapped -and $hostsContent.Contains($hostsStartMarker)) {
     throw "hosts file already contains TinyCloud Terraform markers"
 }
 
-$hostsBlock = "`r`n$hostsStartMarker`r`n127.0.0.1 management.azure.com`r`n$hostsEndMarker`r`n"
-Set-Content -Path $hostsPath -Value ($hostsContent + $hostsBlock)
+if (-not $launcherHostsMapped) {
+    $hostsBlock = "`r`n$hostsStartMarker`r`n127.0.0.1 management.azure.com`r`n$hostsEndMarker`r`n"
+    Set-Content -Path $hostsPath -Value ($hostsContent + $hostsBlock)
+}
 
 $overrideBody = @"
 provider "azurerm" {
@@ -637,5 +648,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($launcherOverridePath)) {
         Remove-Item -LiteralPath $overridePath -ErrorAction SilentlyContinue
     }
-    Remove-HostsBlock
+    if (-not $launcherHostsMapped) {
+        Remove-HostsBlock
+    }
 }

@@ -178,3 +178,31 @@ func TestParseTerraformEnvRequiresExpectedKeys(t *testing.T) {
 		t.Fatal("ParseTerraformEnv() error = nil, want missing-key error")
 	}
 }
+
+func TestTinyTerraformHostsBlockContainsExpectedMapping(t *testing.T) {
+	t.Parallel()
+
+	block := tinyterraformHostsBlock()
+	if !strings.Contains(block, "# tinycloud terraform begin") {
+		t.Fatalf("tinyterraformHostsBlock() = %q, want start marker", block)
+	}
+	if !strings.Contains(block, "127.0.0.1 management.azure.com") {
+		t.Fatalf("tinyterraformHostsBlock() = %q, want mapping", block)
+	}
+	if !strings.Contains(block, "# tinycloud terraform end") {
+		t.Fatalf("tinyterraformHostsBlock() = %q, want end marker", block)
+	}
+}
+
+func TestResolveTinyTerraformHostsPathHonorsOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "hosts")
+	t.Setenv("TINYTERRAFORM_HOSTS_PATH", override)
+
+	got, err := ResolveTinyTerraformHostsPath()
+	if err != nil {
+		t.Fatalf("ResolveTinyTerraformHostsPath() error = %v", err)
+	}
+	if got != override {
+		t.Fatalf("ResolveTinyTerraformHostsPath() = %q, want %q", got, override)
+	}
+}
