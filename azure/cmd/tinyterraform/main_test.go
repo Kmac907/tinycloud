@@ -81,7 +81,22 @@ if (-not $hostsContent.Contains("# tinycloud terraform begin")) {
     Write-Error "missing launcher-managed hosts marker"
     exit 1
 }
-Invoke-RestMethod "http://127.0.0.1:4566/_admin/healthz" -TimeoutSec 2 | Out-Null
+$healthReady = $false
+$healthError = $null
+for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    try {
+        Invoke-RestMethod "http://127.0.0.1:4566/_admin/healthz" -TimeoutSec 2 | Out-Null
+        $healthReady = $true
+        break
+    } catch {
+        $healthError = $_
+        Start-Sleep -Milliseconds 500
+    }
+}
+if (-not $healthReady) {
+    Write-Error ("launcher runtime health probe did not become ready: " + $healthError)
+    exit 1
+}
 Write-Output ("WRAPPER_OK terraform=" + $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE + " override=" + $env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH + " cert=" + $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT + " args=" + ($Args -join " "))
 `
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
