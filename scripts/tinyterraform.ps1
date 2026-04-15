@@ -488,6 +488,7 @@ $launcherRuntimeReady = `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID) -and `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID) -and `
     -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)
+$launcherCertTrusted = $env:TINYTERRAFORM_LAUNCHER_CERT_TRUSTED -eq "1"
 $launcherHostsMapped = $env:TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED -eq "1"
 
 if ($requiresPrivilegedRuntime -and -not $launcherRuntimeReady -and (Get-NetTCPConnection -LocalPort 443 -ErrorAction SilentlyContinue)) {
@@ -582,10 +583,12 @@ if (-not (Test-Path $certPath)) {
     throw "TinyCloud HTTPS certificate was not found at $certPath"
 }
 
-$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
-$trusted = Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
-if (-not $trusted) {
-    Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+if (-not $launcherCertTrusted) {
+    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)
+    $trusted = Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+    if (-not $trusted) {
+        Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+    }
 }
 
 $hostsContent = Get-Content -Raw $hostsPath

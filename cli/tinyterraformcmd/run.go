@@ -187,6 +187,14 @@ func RuntimeWrapperEnv(cwd, terraformDir string, lookPath func(string) (string, 
 		return nil, nil, err
 	}
 
+	if err := EnsureTinyTerraformCertTrusted(runtimeState["TINY_MGMT_HTTPS_CERT"], lookPath); err != nil {
+		if runtimeCleanup != nil {
+			runtimeCleanup()
+		}
+		cleanup()
+		return nil, nil, err
+	}
+
 	combinedCleanup := func() {
 		if runtimeCleanup != nil {
 			runtimeCleanup()
@@ -204,6 +212,7 @@ func RuntimeWrapperEnv(cwd, terraformDir string, lookPath func(string) (string, 
 		"TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID="+runtimeState["ARM_SUBSCRIPTION_ID"],
 		"TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID="+runtimeState["ARM_TENANT_ID"],
 		"TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT="+runtimeState["TINY_MGMT_HTTPS_CERT"],
+		"TINYTERRAFORM_LAUNCHER_CERT_TRUSTED=1",
 		"TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED=1",
 	), combinedCleanup, nil
 }
@@ -359,6 +368,35 @@ func ResolveTinyTerraformHostsPath() (string, error) {
 		return "", errors.New("SystemRoot is not set; cannot locate hosts file")
 	}
 	return filepath.Join(systemRoot, "System32", "drivers", "etc", "hosts"), nil
+}
+
+func EnsureTinyTerraformCertTrusted(certPath string, lookPath func(string) (string, error)) error {
+	if strings.TrimSpace(certPath) == "" {
+		return errors.New("TinyCloud Terraform environment is missing TINY_MGMT_HTTPS_CERT")
+	}
+	if _, err := os.Stat(certPath); err != nil {
+		return fmt.Errorf("stat TinyCloud HTTPS certificate: %w", err)
+	}
+
+	powerShellExe, err := ResolvePowerShellExe(lookPath)
+	if err != nil {
+		return err
+	}
+
+	script := "$certPath = " + PowerShellSingleQuoted(certPath) + "\n" +
+		"$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certPath)\n" +
+		"$trusted = Get-ChildItem Cert:\\CurrentUser\\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }\n" +
+		"if (-not $trusted) { Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\\CurrentUser\\Root | Out-Null }\n"
+	cmd := exec.Command(powerShellExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("trust TinyCloud HTTPS certificate: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func PowerShellSingleQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func TinyCloudRuntimeEnv(repoRoot, runtimeRoot string) []string {

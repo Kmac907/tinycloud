@@ -71,8 +71,18 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)) {
     Write-Error "missing launcher runtime cert"
     exit 1
 }
+if ($env:TINYTERRAFORM_LAUNCHER_CERT_TRUSTED -ne "1") {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_CERT_TRUSTED"
+    exit 1
+}
 if ($env:TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED -ne "1") {
     Write-Error "missing TINYTERRAFORM_LAUNCHER_HOSTS_MAPPED"
+    exit 1
+}
+$cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($env:TINYTERRAFORM_LAUNCHER_TINY_MGMT_HTTPS_CERT)
+$trusted = Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+if (-not $trusted) {
+    Write-Error "launcher did not trust runtime cert"
     exit 1
 }
 $hostsPath = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_HOSTS_PATH)) { $env:TINYTERRAFORM_HOSTS_PATH } else { Join-Path $env:SystemRoot "System32\\drivers\\etc\\hosts" }

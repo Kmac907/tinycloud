@@ -206,3 +206,13 @@ func TestResolveTinyTerraformHostsPathHonorsOverride(t *testing.T) {
 		t.Fatalf("ResolveTinyTerraformHostsPath() = %q, want %q", got, override)
 	}
 }
+
+func TestPowerShellSingleQuotedEscapesEmbeddedQuotes(t *testing.T) {
+	t.Parallel()
+
+	got := PowerShellSingleQuoted(`C:\temp\it's\cert.pem`)
+	want := `'C:\temp\it''s\cert.pem'`
+	if got != want {
+		t.Fatalf("PowerShellSingleQuoted() = %q, want %q", got, want)
+	}
+}
