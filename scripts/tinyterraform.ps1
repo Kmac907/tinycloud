@@ -360,6 +360,9 @@ New-Item -ItemType Directory -Force $runtimeRoot,$dataRoot,$shimDir | Out-Null
 $terraformExe = Resolve-TerraformExe
 Write-Verbose ("Using terraform: " + $terraformExe)
 $shimPowerShellExe = (Get-Process -Id $PID).Path
+$launcherAzShimReady = `
+    -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR) -and `
+    -not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG)
 
 if (-not $requiresTinyCloudRuntime) {
     & $terraformExe @TerraformArgs
@@ -398,14 +401,24 @@ if ($terraformSubcommand -eq "init") {
     exit $LASTEXITCODE
 }
 
-$azShimLauncher = @'
+if ($launcherAzShimReady) {
+    $shimDir = $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR
+    $shimLog = $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG
+    if (-not (Test-Path (Join-Path $shimDir "az.cmd"))) {
+        throw "launcher-managed az shim launcher is missing"
+    }
+    if (-not (Test-Path (Join-Path $shimDir "azshim.ps1"))) {
+        throw "launcher-managed az shim script is missing"
+    }
+} else {
+    $azShimLauncher = @'
 @echo off
 "{0}" -NoProfile -File "%~dp0azshim.ps1" %*
 exit /b %ERRORLEVEL%
 '@ -f $shimPowerShellExe
-Set-Content -Path (Join-Path $shimDir "az.cmd") -Value $azShimLauncher
+    Set-Content -Path (Join-Path $shimDir "az.cmd") -Value $azShimLauncher
 
-$azShimScript = @'
+    $azShimScript = @'
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
 
 Set-StrictMode -Version Latest
@@ -471,7 +484,8 @@ if ($Args.Length -ge 2 -and $Args[0] -eq "account" -and $Args[1] -eq "get-access
 Write-Error ("unsupported az command: " + ($Args -join " "))
 exit 1
 '@
-Set-Content -Path (Join-Path $shimDir "azshim.ps1") -Value $azShimScript
+    Set-Content -Path (Join-Path $shimDir "azshim.ps1") -Value $azShimScript
+}
 
 $env:GOCACHE = $goCache
 $env:TINYCLOUD_BACKEND = "process"

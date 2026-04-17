@@ -47,6 +47,22 @@ if (-not (Test-Path $env:TINYTERRAFORM_LAUNCHER_TERRAFORM_EXE)) {
     Write-Error "missing launcher-resolved terraform exe"
     exit 1
 }
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR"
+    exit 1
+}
+if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG)) {
+    Write-Error "missing TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG"
+    exit 1
+}
+if (-not (Test-Path (Join-Path $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR "az.cmd"))) {
+    Write-Error "missing launcher-managed az.cmd"
+    exit 1
+}
+if (-not (Test-Path (Join-Path $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR "azshim.ps1"))) {
+    Write-Error "missing launcher-managed azshim.ps1"
+    exit 1
+}
 if ([string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH)) {
     Write-Error "missing TINYTERRAFORM_LAUNCHER_OVERRIDE_PATH"
     exit 1
@@ -83,6 +99,24 @@ $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($e
 $trusted = Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
 if (-not $trusted) {
     Write-Error "launcher did not trust runtime cert"
+    exit 1
+}
+$env:ARM_SUBSCRIPTION_ID = $env:TINYTERRAFORM_LAUNCHER_ARM_SUBSCRIPTION_ID
+$env:ARM_TENANT_ID = $env:TINYTERRAFORM_LAUNCHER_ARM_TENANT_ID
+$env:TINYTERRAFORM_AZ_LOG = $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG
+$azVersion = & (Join-Path $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR "az.cmd") version
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "launcher-managed az shim failed version"
+    exit 1
+}
+$azAccount = & (Join-Path $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_DIR "az.cmd") account show
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "launcher-managed az shim failed account show"
+    exit 1
+}
+$azLog = if (Test-Path $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG) { Get-Content -Raw $env:TINYTERRAFORM_LAUNCHER_AZ_SHIM_LOG } else { "" }
+if (-not $azLog.Contains("version") -or -not $azLog.Contains("account show")) {
+    Write-Error "launcher-managed az shim log missing expected commands"
     exit 1
 }
 $hostsPath = if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_HOSTS_PATH)) { $env:TINYTERRAFORM_HOSTS_PATH } else { Join-Path $env:SystemRoot "System32\\drivers\\etc\\hosts" }

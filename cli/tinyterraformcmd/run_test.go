@@ -216,3 +216,52 @@ func TestPowerShellSingleQuotedEscapesEmbeddedQuotes(t *testing.T) {
 		t.Fatalf("PowerShellSingleQuoted() = %q, want %q", got, want)
 	}
 }
+
+func TestTinyTerraformAzShimScriptIncludesExpectedCommands(t *testing.T) {
+	t.Parallel()
+
+	script := TinyTerraformAzShimScript()
+	for _, expected := range []string{
+		`account" -and $Args[1] -eq "show`,
+		`account" -and $Args[1] -eq "get-access-token`,
+		`Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:4566/oauth/token"`,
+		`unsupported az command`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("TinyTerraformAzShimScript() missing %q", expected)
+		}
+	}
+}
+
+func TestEnsureTinyTerraformAzShimCreatesExpectedFiles(t *testing.T) {
+	t.Parallel()
+
+	runtimeRoot := t.TempDir()
+	shimDir, shimLog, err := EnsureTinyTerraformAzShim(runtimeRoot, func(name string) (string, error) {
+		if name != "pwsh" {
+			t.Fatalf("ResolvePowerShellExe lookPath asked for %q, want pwsh first", name)
+		}
+		return `C:\Program Files\PowerShell\7\pwsh.exe`, nil
+	})
+	if err != nil {
+		t.Fatalf("EnsureTinyTerraformAzShim() error = %v", err)
+	}
+	if got, want := shimDir, filepath.Join(runtimeRoot, "shim"); got != want {
+		t.Fatalf("shimDir = %q, want %q", got, want)
+	}
+	if got, want := shimLog, filepath.Join(runtimeRoot, "azshim.log"); got != want {
+		t.Fatalf("shimLog = %q, want %q", got, want)
+	}
+	for _, path := range []string{filepath.Join(shimDir, "az.cmd"), filepath.Join(shimDir, "azshim.ps1")} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected shim file %q: %v", path, err)
+		}
+	}
+	launcher, err := os.ReadFile(filepath.Join(shimDir, "az.cmd"))
+	if err != nil {
+		t.Fatalf("ReadFile(az.cmd) error = %v", err)
+	}
+	if !strings.Contains(string(launcher), `pwsh.exe`) || !strings.Contains(string(launcher), `azshim.ps1`) {
+		t.Fatalf("az.cmd = %q, want embedded pwsh launcher and azshim target", string(launcher))
+	}
+}
