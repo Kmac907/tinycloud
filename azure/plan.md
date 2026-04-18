@@ -487,22 +487,27 @@ After `#6` and `#7`, the next remaining work should stay in this order:
 8. verified Terraform integration once Terraform is available in CI
 9. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
 10. Phase 1 distribution foundation: GitHub Releases, GHCR runtime image, bootstrap scripts, and `tinycloud setup` / `tinycloud setup --full`
-11. Phase 2 distribution convenience: package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
-12. Phase 3 polished distribution: native installers, signing, update checks, and product-grade installer UX
-13. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-14. Blob event notification hooks only if a real workflow needs them
-15. Key Vault certificates only if a real workflow needs them
-16. Private Endpoints for supported services
-17. Azure Functions local trigger/runtime helpers
-18. Function App ARM resource and deployment helpers
-19. App Service / Web App resource shell
-20. Container Registry subset
-21. Compose-first local workflow
-22. Managed identity scenario presets for app-to-service testing
-23. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
-24. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
-25. Container Apps or deeper App Service workflow support only if real workflows require it
-26. Load Balancer / public IP modeling only if real workflows require it
+11. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+12. Blob event notification hooks only if a real workflow needs them
+13. Key Vault certificates only if a real workflow needs them
+14. Private Endpoints for supported services
+15. Azure Functions local trigger/runtime helpers
+16. Function App ARM resource and deployment helpers
+17. App Service / Web App resource shell
+18. Container Registry subset
+19. Compose-first local workflow
+20. Managed identity scenario presets for app-to-service testing
+21. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
+22. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+23. Container Apps or deeper App Service workflow support only if real workflows require it
+24. Load Balancer / public IP modeling only if real workflows require it
+
+### Post-MVP deferred distribution work
+
+The MVP should stop at the Phase 1 install and release model above. Later packaging/distribution polish is intentionally deferred until after MVP:
+
+- package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
+- native installers, signing, update checks, and product-grade installer UX
 
 ### Roadmap philosophy
 
@@ -532,22 +537,20 @@ The current 18-area emulation scope is already implemented or intentionally part
 
 6. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
 7. Phase 1 distribution foundation: GitHub Releases, GHCR runtime image, bootstrap scripts, and `tinycloud setup` / `tinycloud setup --full`
-8. Phase 2 distribution convenience: package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
-9. Phase 3 polished distribution: native installers, signing, update checks, and product-grade installer UX
 
 #### Tier 3: behavior refinements for implemented services
 
-10. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-11. Blob event notification hooks only if a real workflow needs them
-12. Key Vault certificates only if a real workflow needs them
-13. Additional deployment-template coverage for already implemented providers, but only when a real workflow needs it
-14. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+8. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+9. Blob event notification hooks only if a real workflow needs them
+10. Key Vault certificates only if a real workflow needs them
+11. Additional deployment-template coverage for already implemented providers, but only when a real workflow needs it
+12. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
 
 #### Tier 4: broader application-platform and networking additions
 
-15. Private Endpoints for supported services
-16. Azure Functions local trigger/runtime helpers
-17. Function App ARM resource and deployment helpers
+13. Private Endpoints for supported services
+14. Azure Functions local trigger/runtime helpers
+15. Function App ARM resource and deployment helpers
 18. App Service / Web App resource shell
 19. Container Registry subset
 
@@ -590,9 +593,8 @@ The current 18-area emulation scope is already implemented or intentionally part
 
 #### Distribution phases
 
-- Phase 1 should add GitHub Releases, the GHCR runtime image, bootstrap scripts, and the first `tinycloud setup` / `tinycloud setup --full` install flow.
-- Phase 2 should add package managers, a managed tools directory for tested upstream tool versions where appropriate, CLI-driven dependency management, and environment diagnostics.
-- Phase 3 should add native installers, signing, update checks, and a polished product install/update UX.
+- The MVP should add GitHub Releases, the GHCR runtime image, bootstrap scripts, and the first `tinycloud setup` / `tinycloud setup --full` install flow.
+- Package managers, a managed tools directory for tested upstream tool versions where appropriate, CLI-driven dependency management, environment diagnostics, native installers, signing, update checks, and a polished product install/update UX are post-MVP work.
 
 #### Compose-first local workflow
 

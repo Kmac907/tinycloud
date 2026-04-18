@@ -376,26 +376,24 @@ This section is the full remaining roadmap tail. Completing the short `Suggested
 8. Verified Terraform integration once Terraform is available in CI
 9. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
 10. Phase 1 distribution foundation: GitHub Releases, GHCR runtime image, bootstrap scripts, and `tinycloud setup` / `tinycloud setup --full`
-11. Phase 2 distribution convenience: package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
-12. Phase 3 polished distribution: native installers, signing, update checks, and product-grade installer UX
-13. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-14. Blob event notification hooks only if a real workflow needs them
-15. Key Vault certificates only if a real workflow needs them
-16. Private Endpoints for supported services
-17. Azure Functions local trigger/runtime helpers
-18. Function App ARM resource and deployment helpers
-19. App Service / Web App resource shell
-20. Container Registry subset
-21. Compose-first local workflow
-22. Managed identity scenario presets for app-to-service testing
-23. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
-24. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
-25. Container Apps or deeper App Service workflow support only if real workflows require it
-26. Load Balancer / public IP modeling only if real workflows require it
+11. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+12. Blob event notification hooks only if a real workflow needs them
+13. Key Vault certificates only if a real workflow needs them
+14. Private Endpoints for supported services
+15. Azure Functions local trigger/runtime helpers
+16. Function App ARM resource and deployment helpers
+17. App Service / Web App resource shell
+18. Container Registry subset
+19. Compose-first local workflow
+20. Managed identity scenario presets for app-to-service testing
+21. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
+22. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+23. Container Apps or deeper App Service workflow support only if real workflows require it
+24. Load Balancer / public IP modeling only if real workflows require it
 
 ## Current Recommendation
 
-The next smallest useful product step is now roadmap item `#6`: implement standalone `tinyaz` with full wrapper coverage across all 18 current TinyCloud emulation-scope areas now that `tinyterraform` convergence under `#5` is complete. The follow-on `#7` contract step should then lock the final per-tool guarantees for that same emulation scope, with `tinyterraform` explicitly limited to the Terraform-feasible portion of it. After that, roadmap item `#9` should remove PowerShell as a hard dependency for normal CLI usage by moving the remaining wrapper/runtime orchestration into the Go command layer, and roadmap item `#10` should introduce the first public bootstrap and `tinycloud setup` / `tinycloud setup --full` install flow.
+The next smallest useful product step is now roadmap item `#6`: implement standalone `tinyaz` with full wrapper coverage across all 18 current TinyCloud emulation-scope areas now that `tinyterraform` convergence under `#5` is complete. The follow-on `#7` contract step should then lock the final per-tool guarantees for that same emulation scope, with `tinyterraform` explicitly limited to the Terraform-feasible portion of it. After that, roadmap item `#9` should remove PowerShell as a hard dependency for normal CLI usage by moving the remaining wrapper/runtime orchestration into the Go command layer, and roadmap item `#10` should introduce the MVP public bootstrap and `tinycloud setup` / `tinycloud setup --full` install flow.
 
 Migration note:
 
@@ -407,7 +405,7 @@ Migration note:
 - the repo-root Dockerfile and `tinycloud start` path now agree on a real container-oriented local workflow
 - the approved terminal-only polish slice is now complete: startup banner only on `start`, tables for runtime/services/endpoints, grouped config output, and interactive status-icon color treatment without changing JSON contracts
 - next continue contiguous roadmap execution from `#6` through `#10`
-- then resume the remaining ordered sequence from `#11` onward without introducing side tracks
+- after MVP Phase 1 distribution is complete, resume the remaining ordered sequence from `#11` onward without introducing side tracks
 
 Terraform note:
 
@@ -422,10 +420,9 @@ Distribution note:
   - run `tinycloud setup --full`
   - let the CLI validate or install the full local suite
 - That install story is planned, not implemented today.
-- Roadmap items `#10` through `#12` now track the staged distribution work:
+- MVP distribution is intentionally limited to roadmap item `#10`:
   - Phase 1 foundation
-  - Phase 2 convenience
-  - Phase 3 polished installers and update UX
+- Later package-manager convenience, managed dependency flows, native installers, signing, and update UX are post-MVP work and are not part of the active MVP execution window.
 
 ## Completed Slices
 
