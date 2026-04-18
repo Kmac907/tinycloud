@@ -21,6 +21,10 @@ See [installation.md](installation.md) for the full installed CLI setup flow, in
 
 Contributor workflows still mention PowerShell because the current Windows wrappers are part of the transition path. That is current-state documentation, not the long-term product dependency model. Normal TinyCloud usage is intended to converge on cross-platform compiled binaries without requiring PowerShell.
 
+For the planned public packaging, bootstrap, and `tinycloud setup --full` model, see [distribution.md](distribution.md). That document describes the intended release/install story; it does not mean those commands are implemented today.
+
+This is the shared repo-wide development guide. Azure-emulator-specific behavior and compatibility details remain under [../azure/docs/](../azure/docs/).
+
 ## Local Smoke Tests
 
 ```powershell

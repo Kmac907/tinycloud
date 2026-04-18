@@ -36,6 +36,13 @@ If you want real installed commands like `tinycloud init`, build the binaries un
 
 The intended end state is that normal TinyCloud usage happens through compiled binaries on `PATH`, not through mandatory PowerShell wrappers. The current PowerShell scripts are transitional compatibility paths while the remaining wrapper/runtime orchestration is moved into the Go command layer.
 
+Planned install and environment-preparation commands:
+
+- `tinycloud setup`
+- `tinycloud setup --full`
+
+Those commands are part of the planned distribution model and are not implemented today. See [distribution.md](distribution.md).
+
 ## Runtime Model
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime manager plus endpoint, config, and service-control surface for both supported local runtime backends:
@@ -131,3 +138,4 @@ Current installed-binary shape:
 - `tinyterraform.exe` can be built today from `cmd\tinyterraform`
 - `tinyaz.exe` should be documented as a separate build only after standalone `cmd\tinyaz` exists
 - PowerShell should not remain a hard dependency for normal CLI usage once that wrapper/runtime convergence work is complete
+- the planned bootstrap-plus-setup install story should eventually make the manual binary-build path optional rather than the default onboarding flow

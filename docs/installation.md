@@ -51,6 +51,24 @@ When standalone `tinyaz` is implemented, it should be built separately like the 
 go build -o .\bin\tinyaz.exe .\cmd\tinyaz
 ```
 
+## Current Install Story Versus Planned Install Story
+
+Current install story:
+
+- build the binaries locally
+- add the binary directory to `PATH`
+- run `tinycloud ...` directly
+
+Planned official install story:
+
+1. bootstrap the `tinycloud` CLI from a TinyCloud-hosted installer URL
+2. run `tinycloud setup --full`
+3. let the CLI validate or install the full local suite
+
+That bootstrap-plus-setup flow is planned, not implemented today.
+
+See [distribution.md](distribution.md) for the broader packaging and release model.
+
 ## Add The Binaries To PATH
 
 For the current PowerShell session only:
@@ -98,6 +116,7 @@ Both paths use the same command entrypoint code. The difference is only whether 
 ## Notes
 
 - The installed CLI shape currently covers `tinycloud` and `tinyterraform`.
-- `tinyterraform` runtime-routed flows still have the same current Windows privilege requirements documented in [terraform.md](terraform.md).
+- `tinyterraform` runtime-routed flows still have the same current Windows privilege requirements documented in [../azure/docs/terraform.md](../azure/docs/terraform.md).
 - Standalone `tinyaz` should be documented as an installable binary only after `cmd\tinyaz` actually exists.
 - PowerShell should be treated as a transitional compatibility tool, not the long-term product dependency model for normal TinyCloud CLI usage.
+- The planned `tinycloud setup` and `tinycloud setup --full` flow belongs to the roadmap and distribution model, not the current implemented install surface.

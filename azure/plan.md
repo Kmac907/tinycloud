@@ -211,6 +211,7 @@ Apply middleware in this order:
 
 ### Commands
 - `start`
+- `setup`
 - `stop`
 - `restart`
 - `logs`
@@ -236,6 +237,8 @@ Apply middleware in this order:
 
 ### CLI behavior
 - `tinycloud` should be the main cohesive product CLI, analogous to the `localstack` CLI.
+- `setup` should validate and prepare the local TinyCloud environment before normal runtime use.
+- `setup --full` should become the first-run install command that validates or installs the full local suite, including the runtime image, config/data roots, wrapper binaries, and supported toolchain prerequisites.
 - `start` launches TinyCloud locally and should support both attached and detached runtime operation.
 - `start` should default to detached startup, print the startup summary and next commands, and return control to the shell.
 - `start --attached` should be the explicit foreground/log-streaming mode.
@@ -277,6 +280,7 @@ Apply middleware in this order:
   - `tinyterraform` as the Terraform wrapper, analogous to `tflocal`
   - `tinyaz` as the Azure CLI wrapper, analogous to `azlocal`
 - `tinycloud` should own lifecycle, status, diagnostics, endpoint discovery, configuration, state helpers, and wrapper discovery/orchestration.
+- `tinycloud` should eventually own the official install/bootstrap workflow through `setup` and `setup --full`, with the bootstrap scripts only installing the `tinycloud` CLI itself.
 - `tinycloud` should discover and manage the active TinyCloud runtime so `status`, `logs`, `stop`, and `wait` work against the same instance with minimal manual wiring.
 - `tinycloud start` should be able to launch the runtime through the supported backend for the environment rather than assuming only a direct foreground Go server process.
 - The default local-developer product flow should be container-oriented, with the CLI responsible for initializing and managing the TinyCloud container/runtime in the same way the LocalStack CLI manages its local runtime.
@@ -360,7 +364,42 @@ Apply middleware in this order:
 - `docker run -p 4566:4566 -p 4567:4567 -p 4577:4577 -p 4578:4578 -p 4579:4579 -p 4580:4580 -p 4581:4581 -p 4582:4582 -p 4583:4583 -p 4584:4584/udp -v tinycloud-data:/var/lib/tinycloud tinycloud:latest`
 - `docker run -p 4566:4566 -p 4567:4567 -p 4577:4577 -p 4578:4578 -p 4579:4579 -p 4580:4580 -p 4581:4581 -p 4582:4582 -p 4583:4583 -p 4584:4584/udp -p 4585:4585 -v tinycloud-data:/var/lib/tinycloud tinycloud:latest`
 
-## 13. Compatibility
+## 13. Distribution and installation
+
+### Artifact model
+- Publish native CLI binaries for `tinycloud`, `tinyterraform`, and later `tinyaz`.
+- Publish checksums and release notes with every release.
+- Publish the runtime image separately from the CLI binaries.
+- Prefer GitHub Releases for versioned binary artifacts.
+- Prefer GHCR for the runtime image.
+
+### Bootstrap model
+- Serve small bootstrap scripts from a TinyCloud-controlled domain such as:
+  - `https://get.tinycloud.dev/install.sh`
+  - `https://get.tinycloud.dev/install.ps1`
+- The bootstrap scripts should install the `tinycloud` CLI only.
+- The bootstrap scripts should not contain the full suite install logic.
+- The bootstrap scripts should direct users to run `tinycloud setup --full`.
+
+### Setup command model
+- `tinycloud setup` should validate and prepare the local TinyCloud environment.
+- `tinycloud setup --full` should own the first-run install and validation flow for the full local suite.
+- `tinycloud setup --full` should verify Docker, initialize config/data roots, prepare runtime metadata, validate wrapper prerequisites, and later manage supported upstream tool versions where appropriate.
+
+### Toolchain model
+- `tinyterraform` should continue to use a real Terraform binary rather than a reimplementation.
+- `tinyaz` should continue to use a real Azure CLI `az` binary rather than a reimplementation.
+- Near-term, external dependency detection is acceptable.
+- Longer-term, TinyCloud may manage tested upstream tool versions in a TinyCloud-owned tools directory rather than relying only on the global system `PATH`.
+
+### Public install story
+- The intended end-user install story should eventually be:
+  1. bootstrap `tinycloud`
+  2. run `tinycloud setup --full`
+  3. run `tinycloud start`
+- The manual source-build path may remain available, but it should not remain the primary onboarding story.
+
+## 14. Compatibility
 
 ### Terraform
 - Support `azurerm_resource_group` against the ARM endpoint.
@@ -376,7 +415,7 @@ Apply middleware in this order:
 - Advertise correct data-plane endpoints for Blob, Key Vault, and other implemented services.
 - Keep JSON casing and headers Azure-compatible where possible.
 
-## 14. API contracts
+## 15. API contracts
 
 ### Management responses
 - Use Azure-style `id`, `name`, `type`, `location`, `properties`, and `tags`.
@@ -389,7 +428,7 @@ Apply middleware in this order:
 - Support `InProgress`, `Succeeded`, and `Failed`.
 - Expose a polling endpoint that returns status and terminal error details.
 
-## 15. Implementation order
+## 16. Implementation order
 
 1. Foundation: config, logging, HTTP server, state layer, Docker.
 2. Metadata and token issuer.
@@ -402,7 +441,7 @@ Apply middleware in this order:
 9. Terraform/Pulumi examples.
 10. Snapshot and seed admin flows.
 
-## 16. Acceptance criteria
+## 17. Acceptance criteria
 
 - The project compiles cleanly.
 - `docker run` starts the emulator successfully.
@@ -413,7 +452,7 @@ Apply middleware in this order:
 - Responses are Azure-compatible enough for basic SDK and Terraform workflows.
 - No core flow contains placeholder-only stubs.
 
-## 17. Local runtime expectations
+## 18. Local runtime expectations
 
 - Local developer workflows must run without `sudo` or administrator privileges.
 - Core TinyCloud runtime workflows must run without `sudo` or administrator privileges.
@@ -422,7 +461,7 @@ Apply middleware in this order:
 - Snapshot creation without an explicit path must write to a location that is writable by the active process.
 - Container defaults may continue to use `/var/lib/tinycloud` because the image provisions that directory for the non-root runtime user.
 
-## 18. Post-v1 next steps
+## 19. Post-v1 next steps
 
 The current codebase satisfies the v1 must-ship scope. The next steps should now optimize for complete local developer workflows rather than broad, shallow feature expansion.
 
@@ -446,21 +485,24 @@ The next active wrapper/product steps are:
 After `#6` and `#7`, the next remaining work should stay in this order:
 
 8. verified Terraform integration once Terraform is available in CI
-9. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-10. Blob event notification hooks only if a real workflow needs them
-11. Key Vault certificates only if a real workflow needs them
-12. Private Endpoints for supported services
-13. Azure Functions local trigger/runtime helpers
-14. Function App ARM resource and deployment helpers
-15. App Service / Web App resource shell
-16. Container Registry subset
-17. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
-18. Compose-first local workflow
-19. Managed identity scenario presets for app-to-service testing
-20. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
-21. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
-22. Container Apps or deeper App Service workflow support only if real workflows require it
-23. Load Balancer / public IP modeling only if real workflows require it
+9. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+10. Phase 1 distribution foundation: GitHub Releases, GHCR runtime image, bootstrap scripts, and `tinycloud setup` / `tinycloud setup --full`
+11. Phase 2 distribution convenience: package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
+12. Phase 3 polished distribution: native installers, signing, update checks, and product-grade installer UX
+13. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+14. Blob event notification hooks only if a real workflow needs them
+15. Key Vault certificates only if a real workflow needs them
+16. Private Endpoints for supported services
+17. Azure Functions local trigger/runtime helpers
+18. Function App ARM resource and deployment helpers
+19. App Service / Web App resource shell
+20. Container Registry subset
+21. Compose-first local workflow
+22. Managed identity scenario presets for app-to-service testing
+23. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
+24. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+25. Container Apps or deeper App Service workflow support only if real workflows require it
+26. Load Balancer / public IP modeling only if real workflows require it
 
 ### Roadmap philosophy
 
@@ -486,27 +528,33 @@ The current 18-area emulation scope is already implemented or intentionally part
 4. Compose-first local workflow
 5. Managed identity scenario presets for app-to-service testing
 
-#### Tier 2: behavior refinements for implemented services
+#### Tier 2: portability and distribution
 
-6. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-7. Blob event notification hooks only if a real workflow needs them
-8. Key Vault certificates only if a real workflow needs them
-9. Additional deployment-template coverage for already implemented providers, but only when a real workflow needs it
-10. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+6. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+7. Phase 1 distribution foundation: GitHub Releases, GHCR runtime image, bootstrap scripts, and `tinycloud setup` / `tinycloud setup --full`
+8. Phase 2 distribution convenience: package managers, managed tool cache, CLI-driven dependency installation/update flows, and environment diagnostics
+9. Phase 3 polished distribution: native installers, signing, update checks, and product-grade installer UX
 
-#### Tier 3: broader application-platform and networking additions
+#### Tier 3: behavior refinements for implemented services
 
-11. Private Endpoints for supported services
-12. Azure Functions local trigger/runtime helpers
-13. Function App ARM resource and deployment helpers
-14. App Service / Web App resource shell
-15. Container Registry subset
-16. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+10. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+11. Blob event notification hooks only if a real workflow needs them
+12. Key Vault certificates only if a real workflow needs them
+13. Additional deployment-template coverage for already implemented providers, but only when a real workflow needs it
+14. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
 
-#### Tier 4: optional higher-complexity expansions
+#### Tier 4: broader application-platform and networking additions
 
-17. Container Apps or deeper App Service workflow support only if real workflows require it
-18. Load Balancer / public IP modeling only if concrete workflows require it
+15. Private Endpoints for supported services
+16. Azure Functions local trigger/runtime helpers
+17. Function App ARM resource and deployment helpers
+18. App Service / Web App resource shell
+19. Container Registry subset
+
+#### Tier 5: optional higher-complexity expansions
+
+20. Container Apps or deeper App Service workflow support only if real workflows require it
+21. Load Balancer / public IP modeling only if concrete workflows require it
 
 ### Why these are next
 
@@ -539,6 +587,12 @@ The current 18-area emulation scope is already implemented or intentionally part
 - Add automated verification for the existing Terraform example once Terraform is available in CI.
 - Keep the docs honest until that verification exists.
 - Treat working `azurerm_resource_group` apply/destroy as the baseline acceptance target.
+
+#### Distribution phases
+
+- Phase 1 should add GitHub Releases, the GHCR runtime image, bootstrap scripts, and the first `tinycloud setup` / `tinycloud setup --full` install flow.
+- Phase 2 should add package managers, a managed tools directory for tested upstream tool versions where appropriate, CLI-driven dependency management, and environment diagnostics.
+- Phase 3 should add native installers, signing, update checks, and a polished product install/update UX.
 
 #### Compose-first local workflow
 

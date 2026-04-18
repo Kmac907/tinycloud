@@ -36,7 +36,8 @@ Today, TinyCloud ships one implemented emulator backend:
 Azure currently has:
 
 - a full emulator landing page at [azure/README.md](azure/README.md)
-- detailed docs under [azure/docs/](azure/docs)
+- shared product docs under [docs/](docs)
+- Azure-specific docs under [azure/docs/](azure/docs)
 - examples under [azure/examples/](azure/examples)
 - the active roadmap under [azure/plan.md](azure/plan.md)
 
@@ -81,6 +82,14 @@ tinycloud status runtime
 
 Standalone `tinyaz` is planned but not implemented yet, so there is no `cmd\tinyaz` build target today.
 
+The current install path is still manual. The intended official install story is:
+
+1. bootstrap the `tinycloud` CLI from your own TinyCloud domain
+2. run `tinycloud setup --full`
+3. let the CLI validate or install the full local suite
+
+That bootstrap-plus-setup flow is planned, not implemented today.
+
 ## Dependency Matrix
 
 | Command | Current State | External Dependency |
@@ -103,14 +112,20 @@ Current repo-root command surfaces:
 - `tinyterraform`: Terraform compatibility wrapper for the current Azure-backed TinyCloud runtime
 - `tinyaz`: planned Azure CLI compatibility wrapper, not implemented yet
 
+Planned install and distribution command surface:
+
+- `tinycloud setup`: validate and prepare the local TinyCloud environment
+- `tinycloud setup --full`: bootstrap the full local suite, including runtime image, config/data roots, and supported toolchain validation or management
+
 ## Where To Read Next
 
 - Start with [azure/README.md](azure/README.md) for the currently implemented emulator
 - Use [azure/docs/overview.md](azure/docs/overview.md) for the current Azure emulation scope
-- Use [azure/docs/installation.md](azure/docs/installation.md) for installed CLI setup
-- Use [azure/docs/cli.md](azure/docs/cli.md) for command behavior
+- Use [docs/installation.md](docs/installation.md) for installed CLI setup
+- Use [docs/distribution.md](docs/distribution.md) for the planned bootstrap, packaging, and release model
+- Use [docs/cli.md](docs/cli.md) for shared command behavior
 - Use [azure/docs/terraform.md](azure/docs/terraform.md) for current `tinyterraform` behavior and limits
-- Use [azure/docs/development.md](azure/docs/development.md) for local smoke tests and Docker validation
+- Use [docs/development.md](docs/development.md) for repo-wide development workflow, smoke tests, and Docker validation
 
 ## Project Direction
 
@@ -132,4 +147,4 @@ The TinyCloud name and branding are reserved for the project and are not granted
 
 For contribution expectations, including the current CLA requirement for significant contributions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For current development workflow, smoke tests, and emulator-specific docs, start with [azure/docs/development.md](azure/docs/development.md).
+For current development workflow and smoke tests, start with [docs/development.md](docs/development.md). For Azure-emulator-specific docs, start with [azure/README.md](azure/README.md).

@@ -4,7 +4,7 @@ Thanks for your interest in contributing to TinyCloud.
 
 ## Scope
 
-The open repo is the public MVP for the project. Provider-specific implementation details, current development workflow, and emulator validation notes for the implemented Azure backend live under [azure/](azure), especially [azure/docs/development.md](azure/docs/development.md).
+The open repo is the public MVP for the project. Shared product and development docs live under [docs/](docs). Provider-specific implementation details and emulator-specific docs for the implemented Azure backend live under [azure/](azure).
 
 ## Before You Contribute
 
@@ -54,4 +54,4 @@ If you distribute modified versions, do not imply official project status, endor
 
 ## Development
 
-For current local commands, smoke tests, and runtime validation flows, use [azure/docs/development.md](azure/docs/development.md).
+For current local commands, smoke tests, and runtime validation flows, use [docs/development.md](docs/development.md).

@@ -53,7 +53,7 @@ docker build -t tinycloud-azure .
 docker run --rm -p 4566:4566 -p 4577:4577 -p 4578:4578 -p 4579:4579 -p 4580:4580 -p 4581:4581 -p 4582:4582 -p 4583:4583 -p 4584:4584/udp -p 4585:4585 tinycloud-azure
 ```
 
-For direct API examples, per-service usage, and smoke-test flows, see [docs/services.md](docs/services.md) and [docs/development.md](docs/development.md).
+For direct API examples and per-service usage, see [docs/services.md](docs/services.md). For shared smoke-test and development flows, see [../docs/development.md](../docs/development.md).
 
 ## Install
 
@@ -74,7 +74,15 @@ tinycloud start
 tinycloud status runtime
 ```
 
-See [docs/installation.md](docs/installation.md) for the full install/setup flow, including the future separate `tinyaz.exe` build once standalone `tinyaz` exists.
+See [../docs/installation.md](../docs/installation.md) for the full install/setup flow, including the future separate `tinyaz.exe` build once standalone `tinyaz` exists.
+
+The current install path is still manual. The intended official install story is:
+
+1. bootstrap the `tinycloud` CLI from a TinyCloud-hosted installer URL
+2. run `tinycloud setup --full`
+3. let the CLI validate or install the full local suite
+
+That bootstrap-plus-setup flow is planned, not implemented today.
 
 ## CLI
 
@@ -88,8 +96,9 @@ The built-in `tinycloud` CLI manages the local runtime through the repo-root Go 
 
 See:
 
-- [docs/cli.md](docs/cli.md)
-- [docs/installation.md](docs/installation.md)
+- [CLI](../docs/cli.md)
+- [Installation](../docs/installation.md)
+- [Distribution](../docs/distribution.md)
 - [docs/terraform.md](docs/terraform.md)
 
 ## Wrapper Direction
@@ -111,12 +120,13 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 ## Documentation
 
 - [Overview](docs/overview.md)
-- [Installation](docs/installation.md)
-- [CLI](docs/cli.md)
+- [Installation](../docs/installation.md)
+- [Distribution](../docs/distribution.md)
+- [CLI](../docs/cli.md)
 - [Services](docs/services.md)
 - [Terraform](docs/terraform.md)
 - [Configuration](docs/configuration.md)
-- [Development](docs/development.md)
+- [Development](../docs/development.md)
 - [Comparison](docs/comparison.md)
 
 ## Current Limitations
@@ -135,4 +145,4 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 
 ## Contributing
 
-For local smoke tests, development commands, and Docker validation flows, start with [docs/development.md](docs/development.md).
+For local smoke tests, development commands, and Docker validation flows, start with [../docs/development.md](../docs/development.md).
