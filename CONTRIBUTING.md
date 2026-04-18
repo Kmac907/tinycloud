@@ -27,7 +27,7 @@ The open repo is the public MVP for the project. Shared product and development 
    - a clear summary of what changed
    - the validation you ran
    - any assumptions, limitations, or follow-up work
-8. If the change is significant, complete the CLA process before merge.
+8. If the change is significant, complete the CLA process before the pull request can be approved and merged by a maintainer.
 
 ## Pull Request Expectations
 
