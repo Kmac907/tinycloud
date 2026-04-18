@@ -1,3 +1,5 @@
 .tinycloud-runtime/
 .tinyterraform-runtime/
 .gocache/
+.validate-wrapper/
+data/
