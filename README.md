@@ -107,6 +107,14 @@ Current direction:
 - the shared repo-root CLI/runtime layer is already cloud-agnostic in shape
 - additional emulator backends can be added later without making the repo root Azure-specific
 
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+The TinyCloud name and branding are reserved for the project and are not granted by the software license except for reasonable descriptive use.
+
 ## Contributing
+
+For contribution expectations, including the current CLA requirement for significant contributions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 For current development workflow, smoke tests, and emulator-specific docs, start with [azure/docs/development.md](azure/docs/development.md).
