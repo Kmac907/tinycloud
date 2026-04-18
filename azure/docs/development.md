@@ -19,6 +19,8 @@ tinycloud status runtime
 
 See [installation.md](installation.md) for the full installed CLI setup flow, including the current `tinyterraform.exe` build and the future separate `tinyaz.exe` build once standalone `cmd\tinyaz` exists.
 
+Contributor workflows still mention PowerShell because the current Windows wrappers are part of the transition path. That is current-state documentation, not the long-term product dependency model. Normal TinyCloud usage is intended to converge on cross-platform compiled binaries without requiring PowerShell.
+
 ## Local Smoke Tests
 
 ```powershell

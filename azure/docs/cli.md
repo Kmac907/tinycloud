@@ -34,6 +34,8 @@ From `tinycloud\`, the same control CLI is also available through the repo-root 
 
 If you want real installed commands like `tinycloud init`, build the binaries under `.\bin` and add that directory to `PATH`. See [installation.md](installation.md).
 
+The intended end state is that normal TinyCloud usage happens through compiled binaries on `PATH`, not through mandatory PowerShell wrappers. The current PowerShell scripts are transitional compatibility paths while the remaining wrapper/runtime orchestration is moved into the Go command layer.
+
 ## Runtime Model
 
 The built-in `tinycloud` CLI is not an Azure CLI replacement. It is the local runtime manager plus endpoint, config, and service-control surface for both supported local runtime backends:
@@ -128,3 +130,4 @@ Current installed-binary shape:
 - `tinycloud.exe` can be built today from `cmd\tinycloud`
 - `tinyterraform.exe` can be built today from `cmd\tinyterraform`
 - `tinyaz.exe` should be documented as a separate build only after standalone `cmd\tinyaz` exists
+- PowerShell should not remain a hard dependency for normal CLI usage once that wrapper/runtime convergence work is complete

@@ -15,6 +15,8 @@
 
 TinyCloud is a local Azure-compatible emulator for ARM, identity, storage, secrets, messaging, event streaming, and selected network workflows. It is designed for targeted local Azure workflow testing, not full Azure parity.
 
+Normal product usage should converge on compiled `tinycloud`, `tinyterraform`, and `tinyaz` binaries. The current PowerShell scripts are transitional compatibility paths, not the intended long-term dependency model.
+
 ## Supported Today
 
 Current emulator status:
@@ -123,6 +125,7 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 - `tinyterraform` support is still limited by real Terraform provider/resource coverage
 - `tinyterraform` is still ARM-first today; broad automatic per-service Terraform routing is not yet verified
 - standalone `tinyaz` is not implemented yet
+- some current Windows wrapper flows still use PowerShell; removing PowerShell as a hard dependency for normal CLI usage remains an explicit portability goal
 - this is not a blanket Azure CLI, Terraform-provider, or SDK parity environment today
 
 ## Examples

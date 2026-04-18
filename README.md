@@ -14,6 +14,8 @@
 
 TinyCloud is a local cloud emulator project. The repo root holds the shared command surfaces, wrappers, and runtime-management layers. Provider-specific emulator implementations live under dedicated folders such as [`azure/`](azure), which is the first implemented emulator in the current repo.
 
+Normal product usage should converge on compiled `tinycloud`, `tinyterraform`, and future `tinyaz` binaries. The current PowerShell wrappers are transitional compatibility paths, not the intended long-term dependency model for normal cross-platform CLI usage.
+
 ## What This Repo Contains
 
 At the top level:
@@ -36,7 +38,7 @@ Azure currently has:
 - a full emulator landing page at [azure/README.md](azure/README.md)
 - detailed docs under [azure/docs/](azure/docs)
 - examples under [azure/examples/](azure/examples)
-- the active roadmap and implementation tracker under [azure/plan.md](azure/plan.md) and [azure/implementation-plan.md](azure/implementation-plan.md)
+- the active roadmap under [azure/plan.md](azure/plan.md)
 
 ## Quick Start
 
@@ -78,6 +80,19 @@ tinycloud status runtime
 ```
 
 Standalone `tinyaz` is planned but not implemented yet, so there is no `cmd\tinyaz` build target today.
+
+## Dependency Matrix
+
+| Command | Current State | External Dependency |
+| --- | --- | --- |
+| `tinycloud` | implemented today | Go for source builds; Docker is the typical local runtime backend |
+| `tinyterraform` | implemented today | Terraform must be installed locally |
+| `tinyaz` | planned, not implemented yet | Azure CLI `az` is expected to be installed locally under the current wrapper model |
+
+Current note:
+
+- some Windows wrapper flows still use PowerShell during the ongoing transition
+- the intended product direction is binary-first and cross-platform, so PowerShell should not remain a hard dependency for normal CLI usage
 
 ## Commands
 

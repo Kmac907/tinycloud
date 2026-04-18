@@ -87,15 +87,12 @@ TinyCloud is a local Azure-compatible emulator written in Go and packaged as a s
 - `tinycloud\azure\...` should hold Azure-specific emulator implementation.
 - Shared CLI/runtime code should live outside provider-specific trees so Azure is one backend, not the repository root.
 
-### Repo layout constraint
-- Today, the active Go module root and Docker build context are the current `tinycloud\azure` tree.
-- Moving command entrypoints to `tinycloud\cmd` is therefore not just a folder move; it requires making the top-level `tinycloud` directory a valid build root.
-- That migration must explicitly cover:
-  - Go module or workspace root migration
-  - Docker build-context migration
-  - wrapper/build script path migration
-  - documentation and example command-path migration
-  - keeping the Azure emulator buildable throughout the transition
+### Repo layout status
+- The effective Go workspace/build root is now the top-level `tinycloud` directory.
+- Repo-root Docker builds and top-level `cmd\...` entrypoints now exist.
+- Shared CLI/runtime code now lives outside the provider-specific Azure tree.
+- Azure implementation code still lives under `tinycloud\azure\...`.
+- Remaining wrapper/product work is now about standalone `tinyaz`, final wrapper-contract locking, and later portability cleanup rather than repo-root migration itself.
 
 ## 5. Control plane
 
@@ -266,6 +263,8 @@ Apply middleware in this order:
 - `tinyaz` wraps standard Azure CLI usage with TinyCloud compatibility behavior, should invoke the real `az` binary, and should preserve normal `az` argument passing as closely as practical.
 - Both wrappers should pass through stdout, stderr, and exit codes as closely as practical.
 - Compatibility logic should live in the wrapper layer when possible so user Terraform and Azure CLI workflows stay close to their normal cloud equivalents.
+- PowerShell must not remain a hard product dependency for normal `tinycloud`, `tinyterraform`, or `tinyaz` usage; compiled CLI binaries should be the primary user-facing surface across Windows, macOS, and Linux.
+- Any remaining PowerShell scripts should be treated as transitional compatibility shims rather than the long-term product command surface.
 - The target compatibility model for both `tinyterraform` and `tinyaz` is Model 2 where TinyCloud officially supports the command/resource family: the wrapper should classify the command family, resolve the correct TinyCloud endpoint or service endpoint, and preserve the normal upstream command shape instead of requiring users to fall back to manual endpoint helpers for supported flows.
 - The wrapper parity target should track the current TinyCloud emulation scope rather than only the runtime listener list. Today that means the 18 emulator areas documented in the README current-emulation-scope table.
 - `tinyaz` should target full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas, with the wrapper responsible for whatever TinyCloud compatibility behavior is needed to preserve a coherent Azure CLI-shaped workflow for each area.
@@ -419,6 +418,7 @@ Apply middleware in this order:
 - Local developer workflows must run without `sudo` or administrator privileges.
 - Core TinyCloud runtime workflows must run without `sudo` or administrator privileges.
 - Compatibility wrappers may temporarily require elevated privileges when local host routing or certificate/bootstrap behavior cannot yet be achieved in an unprivileged way. Removing that requirement should remain a compatibility goal.
+- Normal installed CLI usage should not require PowerShell. If PowerShell wrappers still exist, they should remain optional compatibility paths until the underlying behavior is fully migrated into the Go command layer.
 - Snapshot creation without an explicit path must write to a location that is writable by the active process.
 - Container defaults may continue to use `/var/lib/tinycloud` because the image provisions that directory for the non-root runtime user.
 
@@ -426,44 +426,41 @@ Apply middleware in this order:
 
 The current codebase satisfies the v1 must-ship scope. The next steps should now optimize for complete local developer workflows rather than broad, shallow feature expansion.
 
-### Command architecture comes first
+### Command architecture status
 
-Before adding more first-class wrapper/product surface, the command layer should be moved into a cloud-agnostic top-level location so the repository can grow beyond Azure cleanly.
+Roadmap items `#1` through `#5` are now complete:
 
-This should happen in this order:
+1. the effective repo/module/build root now lives at `tinycloud`
+2. main product CLI and wrapper entrypoints now live at top-level `cmd\...` locations
+3. shared cloud-agnostic CLI/runtime support now exists outside provider-specific trees
+4. the cohesive LocalStack-style `tinycloud` main CLI now exists
+5. `tinyterraform` now has one shared ownership model for the supported runtime-routing compatibility path
 
-1. promote the effective repo/module/build root from `tinycloud\azure` to `tinycloud`, or introduce an equivalent top-level Go workspace structure
-2. migrate the main product CLI entrypoints from the Azure tree to `tinycloud\cmd`
-3. introduce shared cloud-agnostic CLI/runtime support outside provider-specific trees
-4. complete the first-class `tinycloud` CLI as the LocalStack-style main product command
-5. promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
+The next active wrapper/product steps are:
+
 6. implement standalone `tinyaz` across all 18 current TinyCloud emulation-scope areas
 7. then define and verify the final per-tool wrapper contract for the current TinyCloud emulation scope, including the narrower Terraform-feasible portion of that scope
 
-### CLI migration plan
+### Remaining ordered roadmap
 
-- Step 1: establish the top-level `tinycloud` directory as the buildable Go root via repo-root `go.mod`, repo-root `go.work`, or another equivalent structure
-- Step 2: migrate Docker build context and output paths so builds no longer assume `tinycloud\azure` is the repository root
-- Step 3: establish `tinycloud\cmd\tinycloud` as the long-term home of the main product CLI
-- Step 4: move `tinycloud\cmd\tinyterraform` alongside it so wrappers also live at the top level
-- Step 5: adapt the current Azure emulator to plug into the top-level CLI instead of owning it
-- Step 6: extract shared CLI/runtime/bootstrap helpers out of the Azure tree
-- Step 7: migrate wrapper scripts, docs, examples, and command references to the new top-level paths
-- Step 8: leave Azure implementation code under `tinycloud\azure\...`
-- Step 9: add future provider implementations like `tinycloud\aws\...` without restructuring the top-level command layer again
+After `#6` and `#7`, the next remaining work should stay in this order:
 
-### Pipeline impact of the CLI move
-
-The following project surfaces must move together with the command-layer migration:
-
-- `go.mod` / Go workspace configuration
-- `Dockerfile`
-- wrapper build/run paths such as `scripts\tinyterraform.ps1`
-- docs and example command references
-- local development commands like `go run .\cmd\tinycloud ...`
-- any future CI build/test/release jobs
-
-The migration is only considered complete when those paths are internally consistent again.
+8. verified Terraform integration once Terraform is available in CI
+9. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+10. Blob event notification hooks only if a real workflow needs them
+11. Key Vault certificates only if a real workflow needs them
+12. Private Endpoints for supported services
+13. Azure Functions local trigger/runtime helpers
+14. Function App ARM resource and deployment helpers
+15. App Service / Web App resource shell
+16. Container Registry subset
+17. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+18. Compose-first local workflow
+19. Managed identity scenario presets for app-to-service testing
+20. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
+21. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+22. Container Apps or deeper App Service workflow support only if real workflows require it
+23. Load Balancer / public IP modeling only if real workflows require it
 
 ### Roadmap philosophy
 
@@ -476,66 +473,47 @@ The roadmap should follow the same practical pattern used by successful local cl
 
 ### Service family roadmap
 
-#### Tier 0: command architecture and product shell
+The current 18-area emulation scope is already implemented or intentionally partial. Post-v1 service work should therefore focus on deeper workflow coverage rather than introducing service families that already exist in a basic form.
 
-1. Promote the effective repo/module/build root from `tinycloud\azure` to `tinycloud`
-2. Move the main CLI and wrapper entrypoints to `tinycloud\cmd`
-3. Complete the cohesive `tinycloud` CLI product surface
-4. Promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
-5. Implement standalone `tinyaz` across all 18 current TinyCloud emulation-scope areas
+#### Tier 0: wrapper completion and contract locking
 
-#### Tier 1: complete the core application workflow set
+1. Standalone `tinyaz` across all 18 current TinyCloud emulation-scope areas
+2. Final per-tool wrapper contract locking for `tinyterraform` and `tinyaz`
 
-1. Key Vault secrets data-plane
-2. One queueing workflow end to end:
-   - Service Bus queues if Azure-native messaging is the main target
-   - Queue Storage if a simpler storage-queue workflow is the higher-value first step
-3. One second storage-style service:
-   - Queue Storage
-   - or Table Storage
+#### Tier 1: verification and workflow polish
+
+3. Verified Terraform integration in CI
 4. Compose-first local workflow
-5. Verified Terraform integration
+5. Managed identity scenario presets for app-to-service testing
 
-#### Tier 2: cover common local-cloud building blocks
+#### Tier 2: behavior refinements for implemented services
 
-6. Table Storage
-7. Service Bus queues
-8. Service Bus topics and subscriptions
-9. App Configuration key-values
-10. Cosmos DB core API subset
+6. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+7. Blob event notification hooks only if a real workflow needs them
+8. Key Vault certificates only if a real workflow needs them
+9. Additional deployment-template coverage for already implemented providers, but only when a real workflow needs it
+10. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
 
-#### Tier 3: broader event/data workflow support
+#### Tier 3: broader application-platform and networking additions
 
-11. Event Hubs producer/consumer subset
-12. Queue Storage poison/dead-letter style local behavior where relevant
-13. Blob event notification hooks only if required by real workflows
-14. Key Vault certificates only if actual app stacks need them
+11. Private Endpoints for supported services
+12. Azure Functions local trigger/runtime helpers
+13. Function App ARM resource and deployment helpers
+14. App Service / Web App resource shell
+15. Container Registry subset
+16. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
 
-#### Tier 4: app platform and networking foundations
+#### Tier 4: optional higher-complexity expansions
 
-15. DNS/private name resolution subset
-16. Virtual Networks and subnets
-17. NSGs and basic network rule modeling
-18. Private Endpoints for supported services
-19. Azure Functions local trigger/runtime helpers
-20. Function App ARM resource and deployment helpers
-21. App Service / Web App ARM resource shell
-22. Container Registry subset
-
-#### Tier 5: optional higher-complexity expansions
-
-23. Managed identity scenario presets for app-to-service testing
-24. Additional deployment-template coverage for the already implemented providers
-25. Further Blob compatibility refinement as specific SDK gaps appear
-26. Container Apps or App Service workflow depth
-27. Load Balancer / public IP modeling only if concrete workflows require them
+17. Container Apps or deeper App Service workflow support only if real workflows require it
+18. Load Balancer / public IP modeling only if concrete workflows require it
 
 ### Why these are next
 
 - LocalStack shows the value of Docker Compose-first workflows, ready-state initialization, and repeatable state handling for developer adoption.
 - Azurite shows the value of deeper behavior within a narrow service boundary rather than many shallow placeholders.
 - MiniStack shows the value of solving real end-to-end application workflows instead of only exposing control-plane resource shells.
-- The next meaningful expansion for TinyCloud should include additional real services so the project covers more than ARM plus Blob.
+- The next meaningful expansion for TinyCloud is now wrapper completion, verification depth, and workflow polish on top of the already-implemented 18-area surface.
 - Azure’s own emulator ecosystem shows realistic family boundaries:
   - storage family: Blob, Queue, Table
   - secrets/config family: Key Vault, App Configuration
@@ -544,72 +522,23 @@ The roadmap should follow the same practical pattern used by successful local cl
 
 ### Scope of each next step
 
-#### Key Vault secrets data-plane
+#### Standalone `tinyaz`
 
-- Add secret set/get/list/delete behavior on the Key Vault service port.
-- Persist secrets in SQLite and snapshots.
-- Advertise secret endpoints consistently through metadata and ARM resource responses.
-- Keep the implementation narrow and honest; do not attempt full Key Vault parity.
+- Add `cmd/tinyaz` as the first-class Azure CLI compatibility entrypoint.
+- Keep it as a wrapper around the real `az` binary rather than a reimplementation.
+- Target full wrapper coverage across the current 18-area TinyCloud emulation scope.
 
-#### One queueing workflow
+#### Final wrapper contract
 
-- Add either Service Bus queues or Queue Storage as the next real data-plane service.
-- Include both provisioning and message send/receive/delete behavior needed for local worker-style development.
-- Prefer one complete queueing path over partial implementations of both.
+- Lock the exact supported command-family contract for `tinyterraform` and `tinyaz`.
+- Keep `tinyterraform` explicitly limited to the Terraform-feasible portion of the current emulation scope.
+- Add tests and docs that reflect the supported contract rather than implied behavior.
 
-#### Additional service coverage
+#### Verified Terraform integration
 
-- Add one more implemented service beyond Blob and queueing so the emulator is not overly concentrated in a single workflow.
-- Preferred order:
-  - Queue Storage if simple storage queues are the most common target
-  - Table Storage if document/key-value style storage is the next common workflow
-  - Service Bus if Azure-native enterprise messaging is the higher priority
-- Keep each service narrow but real:
-  - CRUD plus the minimum data-plane behaviors required by actual application workflows
-  - persist state in SQLite and snapshots
-  - advertise endpoints consistently through metadata and resource responses
-
-#### Broader common-service roadmap
-
-After secrets plus one queueing path are in place, expand service coverage in the order most likely to unlock real local application stacks:
-
-1. Queue Storage
-2. Table Storage
-3. Service Bus queues
-4. Service Bus topics/subscriptions
-5. Cosmos DB core API subset
-6. Event Hubs producer/consumer subset
-7. App Configuration key-value store
-8. Key Vault certificates only if required by actual workflows
-9. Optional Azure Functions integration helpers for local event-driven apps
-10. DNS/private resolution
-11. Virtual networking subset
-12. Function App / App Service resource shells
-13. Container Registry subset
-
-The intent is not to implement every Azure service. The intent is to cover the common local-cloud building blocks that real applications use:
-
-- object storage
-- secrets
-- queues
-- pub/sub
-- key-value or document storage
-- application configuration
-- event streaming
-- basic networking
-- application hosting and event compute
-- image/artifact distribution
-
-#### Service maturity model
-
-Each new service should move through the same maturity path:
-
-1. ARM resource shell if the service normally has one
-2. Real data-plane behavior for the minimum useful workflow
-3. SQLite persistence and snapshot support
-4. Metadata/endpoint advertisement
-5. Docker Compose example coverage
-6. IaC or SDK verification where realistic
+- Add automated verification for the existing Terraform example once Terraform is available in CI.
+- Keep the docs honest until that verification exists.
+- Treat working `azurerm_resource_group` apply/destroy as the baseline acceptance target.
 
 #### Compose-first local workflow
 
@@ -617,64 +546,20 @@ Each new service should move through the same maturity path:
 - Add a ready-state bootstrap or seed pattern so resources can be created automatically at container startup.
 - Make the intended local-dev startup sequence explicit and reproducible.
 
-#### Verified Terraform integration
+#### Behavior refinements for implemented services
 
-- Add an automated verification path for the existing Terraform example once Terraform is available in CI.
-- Keep the docs honest until this is actually verified.
-- Treat working `azurerm_resource_group` apply/destroy as the acceptance target.
+- Add Queue Storage poison/dead-letter behavior only where it materially improves worker-style testing.
+- Add Blob event notification hooks only when a real workflow needs them.
+- Add Key Vault certificates only when a real workflow needs them.
+- Expand deployment-template coverage only for already implemented providers and only when a real workflow needs it.
+- Refine Blob compatibility only for concrete SDK/tooling gaps rather than speculative parity work.
 
-#### Compose-first workflow maturity
+#### Future platform additions
 
-To align with the way projects like LocalStack are actually used, the roadmap should eventually include:
-
-- a first-party Docker Compose stack
-- startup initialization hooks or seed bundles
-- service readiness checks
-- optional seeded demo environments for common app patterns
-
-### Realistic service target list
-
-The realistic next-service target list for TinyCloud is:
-
-- Blob Storage
-- Queue Storage
-- Table Storage
-- Key Vault secrets
-- Service Bus queues
-- Service Bus topics/subscriptions
-- Cosmos DB core API subset
-- Event Hubs subset
-- App Configuration key-values
-- DNS / private DNS subset
-- Virtual Networks and subnets
-- NSGs and private endpoints for supported services
-- Azure Functions helpers plus Function App resource shell
+- Private Endpoints for supported services
+- Azure Functions local trigger/runtime helpers
+- Function App ARM resource and deployment helpers
 - App Service / Web App resource shell
 - Container Registry subset
-
-The following are realistic only after the above are in place:
-
-- Key Vault certificates
-- Azure Functions integration helpers
-- blob-trigger or queue-trigger local workflow helpers
-- deeper Function App runtime behavior
-- Container Apps workflow support
-- load balancer style network front-door modeling
-
-The following should remain out of scope until there is clear evidence of demand:
-
-- full Azure parity for any service
-- broad networking products
-- RBAC/policy completeness
-- managed Kubernetes
-- full data-plane parity for databases and messaging systems
-
-#### Deployment subset expansion
-
-- Only expand deployment-template support if a real workflow needs it.
-- Prefer static resource coverage for already-implemented providers before adding expressions, functions, or general ARM semantics.
-
-#### Blob compatibility refinement
-
-- Continue tightening headers, XML, and auth behavior only in response to concrete SDK or tooling failures.
-- Avoid speculative parity work with no validating client.
+- PowerShell-free wrapper/runtime orchestration so normal CLI usage is portable across Windows, macOS, and Linux without requiring PowerShell
+- optional deeper Container Apps, App Service, and load-balancer-style modeling only when real workflows require them

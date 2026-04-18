@@ -14,7 +14,7 @@ Primary product scope and acceptance criteria live in `plan.md`.
 
 ## Current Status
 
-The project now appears to satisfy the `plan.md` v1 must-ship scope. Remaining work is in optional v1 coverage only.
+The project now appears to satisfy the `plan.md` v1 must-ship scope. Remaining work is now primarily in the post-v1 roadmap, plus optional v1 verification work such as automated Terraform CI coverage.
 
 Roadmap note:
 
@@ -265,6 +265,7 @@ Roadmap note:
 - Compatibility behavior is now documented, and launcher passthrough has been validated for `init` plus non-runtime commands like `help`, `version`, `login`, `logout`, and `console`, including `go run .\cmd\tinyterraform -- version -json`, PowerShell `-chdir=...` invocation through both the Go launcher and `scripts/tinyterraform.ps1`, repo-root `.\scripts\tinyterraform.ps1 -chdir=.\azure\examples\terraform\resource-group init` through the top-level workspace, `TERRAFORM_EXE` override handling through both entrypoints, direct wrapper preservation of machine-readable stdout for commands like `version -json`, direct passthrough of `terraform help` through both entrypoints without requiring the privileged runtime path, direct passthrough of subcommand help requests like `terraform apply -help` through both entrypoints, direct passthrough of `terraform login` and `terraform logout` through both entrypoints, direct passthrough of `terraform console` through both entrypoints, explicit `TINYCLOUD_SOURCE_ROOT`, `TINYCLOUD_GO_WORKDIR`, `TINYCLOUD_MAIN_PACKAGE`, `TINYTERRAFORM_SCRIPT`, `TINYTERRAFORM_SCRIPT_RELATIVE_PATH`, and `TINYTERRAFORM_RUNTIME_ROOT` overrides for compatibility and repo-layout variation handling, automatic upward source-root discovery from nested wrapper paths like `azure\scripts`, and a local-only `init` path that resets/bootstrap TinyCloud without needing cert trust or hosts-file routing and is now shared by both the launcher and direct wrapper entrypoints, but the full Model 2 command-family routing contract is not yet validated across broader officially supported command coverage
 - Repo-root `go.work` migration now also validates repo-root `tinyterraform` usage from `tinycloud\`, including direct non-runtime launcher usage plus a real `go run .\azure\cmd\tinyterraform -- -chdir=.\azure\examples\terraform\resource-group init` flow, and test coverage now locks in repo-root wrapper discovery through the Azure source tree
 - The current `tinyterraform` path still requires an elevated PowerShell session because of temporary hosts-file routing; removing that privilege requirement remains an open compatibility goal
+- PowerShell scripts still exist for some wrapper and developer paths, but the product direction is now explicit: normal `tinycloud`, `tinyterraform`, and future `tinyaz` usage should converge on compiled cross-platform CLI binaries so PowerShell is not a hard dependency
 - The approved `tinycloud` terminal UX polish is now complete: interactive startup-only branding, runtime-summary-first detached startup output, human-readable tables for runtime/services/endpoints, grouped config display, and status icons with interactive-only green/red/yellow color handling now ship while preserving JSON output unchanged
 
 ### LocalStack-style command compatibility track
@@ -330,70 +331,24 @@ And the main `tinycloud` CLI should additionally own:
 
 ### Full realistic service roadmap
 
-Service families TinyCloud can realistically grow into after the current core:
+The current 18-area emulation scope is already implemented or intentionally partial. The remaining realistic roadmap is therefore not “add Blob/Queue/Table/Cosmos/etc.” It is:
 
-1. Storage family
-   - Blob Storage
-   - Queue Storage
-   - Table Storage
-2. Secrets/config family
-   - Key Vault secrets
-   - App Configuration
-   - Key Vault certificates only if needed later
-3. Messaging/event family
-   - Service Bus queues
-   - Service Bus topics/subscriptions
-   - Event Hubs subset
-4. Data family
-   - Cosmos DB core API subset
-5. Networking family
-   - DNS / private DNS subset
-   - Virtual Networks
-   - subnets
-   - NSGs
-   - private endpoints for supported services
-6. App/compute family
-   - Azure Functions helpers
-   - Function App resource shell
-   - App Service / Web App resource shell
-   - Container Registry subset
-7. Workflow helpers
-   - Docker Compose example stacks
-   - optional Azure Functions trigger helpers
-
-These are the most realistic/common service families for a local Azure emulator without drifting into “implement the whole cloud.”
+1. finish standalone `tinyaz`
+2. lock the final per-tool wrapper contract
+3. add Terraform CI verification
+4. remove PowerShell as a hard dependency for normal CLI usage by moving remaining wrapper/runtime orchestration into the Go command layer
+5. deepen selected behaviors where real workflows need them
+6. add later platform-oriented expansions such as private endpoints, Functions, App Service, and Container Registry only when they are justified by real workflows
 
 ### Common service roadmap after v1
 
-The next broad service additions should target the common local-cloud building blocks used by real applications:
+The next broad additions should focus on:
 
-1. secrets
-2. queues
-3. tables / key-value
-4. pub/sub
-5. document database
-6. application configuration
-7. event streaming
-8. basic networking
-9. application hosting / event compute
-10. image and artifact distribution
-
-Translated to Azure-oriented slices, that means:
-
-1. Key Vault secrets
-2. Queue Storage or Service Bus queues
-3. Table Storage
-4. Service Bus topics/subscriptions
-5. Cosmos DB core API subset
-6. Event Hubs producer/consumer subset
-7. App Configuration key-values
-8. DNS / private DNS subset
-9. Virtual Networks and subnets
-10. NSGs and private endpoints
-11. Azure Functions integration helpers for local event-driven flows
-12. Function App resource shell
-13. App Service / Web App resource shell
-14. Container Registry subset
+1. wrapper completeness and contract locking
+2. Terraform verification
+3. PowerShell-free portability work so normal CLI usage is cross-platform and binary-first
+4. worker/event behavior refinements such as Queue poison/dead-letter handling or Blob event hooks when real workflows justify them
+5. platform-oriented additions such as private endpoints, Azure Functions helpers, Function App, App Service, and Container Registry
 
 ## Suggested Next Sequence
 
@@ -405,8 +360,8 @@ Current near-term window:
 1. `#6` Implement standalone `tinyaz` as the Azure CLI compatibility analogue to `azlocal`, with full wrapper coverage across all 18 current TinyCloud emulation-scope areas
 2. `#7` Define and document the final per-tool command-surface contract for the current TinyCloud emulation scope, including the narrower Terraform-feasible portion of that scope
 3. `#8` Verified Terraform integration once Terraform is available in CI
-4. `#9` Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-5. `#10` Blob event notification hooks only if a real workflow needs them
+4. `#9` PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+5. `#10` Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
 
 ## Full Remaining Ordered Sequence
 
@@ -415,24 +370,25 @@ This section is the full remaining roadmap tail. Completing the short `Suggested
 6. Implement standalone `tinyaz` as the Azure CLI compatibility analogue to `azlocal`, with full wrapper coverage across all 18 current TinyCloud emulation-scope areas
 7. Define and document the final per-tool command-surface compatibility contract for `tinyterraform` and `tinyaz` across the current TinyCloud emulation scope and implement changes if needed, with the Terraform contract explicitly limited to the Terraform-feasible portion of that scope
 8. Verified Terraform integration once Terraform is available in CI
-9. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
-10. Blob event notification hooks only if a real workflow needs them
-11. Key Vault certificates only if a real workflow needs them
-12. Private Endpoints for supported services
-13. Azure Functions local trigger/runtime helpers
-14. Function App ARM resource and deployment helpers
-15. App Service / Web App resource shell
-16. Container Registry subset
-17. Compose-first local workflow
-18. Managed identity scenario presets for app-to-service testing
-19. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
-20. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
-21. Container Apps or deeper App Service workflow support only if real workflows require it
-22. Load Balancer / public IP modeling only if real workflows require it
+9. PowerShell-free wrapper/runtime orchestration for normal cross-platform CLI usage
+10. Queue Storage poison/dead-letter behavior where it materially improves real worker workflows
+11. Blob event notification hooks only if a real workflow needs them
+12. Key Vault certificates only if a real workflow needs them
+13. Private Endpoints for supported services
+14. Azure Functions local trigger/runtime helpers
+15. Function App ARM resource and deployment helpers
+16. App Service / Web App resource shell
+17. Container Registry subset
+18. Compose-first local workflow
+19. Managed identity scenario presets for app-to-service testing
+20. Additional deployment-template coverage for the already implemented providers, but only when a real workflow needs it
+21. Further Blob compatibility refinement, but only for concrete SDK/tooling gaps
+22. Container Apps or deeper App Service workflow support only if real workflows require it
+23. Load Balancer / public IP modeling only if real workflows require it
 
 ## Current Recommendation
 
-The next smallest useful product step is now roadmap item `#6`: implement standalone `tinyaz` with full wrapper coverage across all 18 current TinyCloud emulation-scope areas now that `tinyterraform` convergence under `#5` is complete. The follow-on `#7` contract step should then lock the final per-tool guarantees for that same emulation scope, with `tinyterraform` explicitly limited to the Terraform-feasible portion of it.
+The next smallest useful product step is now roadmap item `#6`: implement standalone `tinyaz` with full wrapper coverage across all 18 current TinyCloud emulation-scope areas now that `tinyterraform` convergence under `#5` is complete. The follow-on `#7` contract step should then lock the final per-tool guarantees for that same emulation scope, with `tinyterraform` explicitly limited to the Terraform-feasible portion of it. After that, roadmap item `#9` should remove PowerShell as a hard dependency for normal CLI usage by moving the remaining wrapper/runtime orchestration into the Go command layer.
 
 Migration note:
 

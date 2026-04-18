@@ -5,6 +5,8 @@ TinyCloud can be used in two ways:
 - repo-local development usage through `go run .\cmd\...`
 - installed CLI usage through built binaries on `PATH`
 
+The intended long-term product model is binary-first and cross-platform. PowerShell is part of the current Windows transition path, but it should not remain a hard dependency for normal installed CLI usage.
+
 This page covers the installed CLI path so you can run commands like:
 
 ```powershell
@@ -16,8 +18,16 @@ tinycloud status runtime
 ## Prerequisites
 
 - Go installed locally
-- PowerShell on Windows
+- PowerShell on Windows for the current transitional wrapper and documentation path
 - Docker installed locally if you want the default Docker-backed runtime flow
+
+## Dependency Matrix
+
+| Command | Current State | External Dependency |
+| --- | --- | --- |
+| `tinycloud` | implemented today | Go for source builds; Docker is the typical local runtime backend |
+| `tinyterraform` | implemented today | Terraform must be installed locally |
+| `tinyaz` | planned, not implemented yet | Azure CLI `az` is expected to be installed locally under the current wrapper model |
 
 ## Build The Current CLI Binaries
 
@@ -90,3 +100,4 @@ Both paths use the same command entrypoint code. The difference is only whether 
 - The installed CLI shape currently covers `tinycloud` and `tinyterraform`.
 - `tinyterraform` runtime-routed flows still have the same current Windows privilege requirements documented in [terraform.md](terraform.md).
 - Standalone `tinyaz` should be documented as an installable binary only after `cmd\tinyaz` actually exists.
+- PowerShell should be treated as a transitional compatibility tool, not the long-term product dependency model for normal TinyCloud CLI usage.
