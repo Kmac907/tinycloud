@@ -12,6 +12,31 @@ The open repo is the public MVP for the project. Shared product and development 
 - keep pull requests focused and narrowly scoped
 - do not include generated runtime state, local validation artifacts, or secrets
 
+## Basic Contribution Flow
+
+1. Review the current product and implementation docs:
+   - start with [README.md](README.md)
+   - use [docs/development.md](docs/development.md) for local workflow and validation commands
+   - for Azure-emulator-specific behavior, use [azure/README.md](azure/README.md) and [azure/docs/](azure/docs)
+2. Open an issue or discussion before starting non-trivial work so scope and direction are clear.
+3. Fork the repo or create a working branch from the current default branch.
+4. Make a small, focused change that matches the documented roadmap and current product direction.
+5. Run the relevant local validation before opening a pull request.
+6. Update docs or examples in the same change when user-facing behavior changes.
+7. Open a pull request with:
+   - a clear summary of what changed
+   - the validation you ran
+   - any assumptions, limitations, or follow-up work
+8. If the change is significant, complete the CLA process before merge.
+
+## Pull Request Expectations
+
+- keep the diff small and reviewable
+- avoid unrelated cleanup in the same pull request
+- include documentation updates when behavior or commands change
+- include test or validation evidence for the changed behavior
+- be explicit about anything still partial or intentionally deferred
+
 ## CLA Requirement
 
 Significant contributions require a Contributor License Agreement (CLA) before they can be merged.
