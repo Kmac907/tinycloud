@@ -267,7 +267,10 @@ Apply middleware in this order:
 - Both wrappers should pass through stdout, stderr, and exit codes as closely as practical.
 - Compatibility logic should live in the wrapper layer when possible so user Terraform and Azure CLI workflows stay close to their normal cloud equivalents.
 - The target compatibility model for both `tinyterraform` and `tinyaz` is Model 2 where TinyCloud officially supports the command/resource family: the wrapper should classify the command family, resolve the correct TinyCloud endpoint or service endpoint, and preserve the normal upstream command shape instead of requiring users to fall back to manual endpoint helpers for supported flows.
-- Parity should be defined against an explicitly documented and verified supported subset, not as a blanket promise that every Terraform or Azure CLI command will work unchanged.
+- The wrapper parity target should track the current TinyCloud emulation scope rather than only the runtime listener list. Today that means the 18 emulator areas documented in the README current-emulation-scope table.
+- `tinyaz` should target full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas, with the wrapper responsible for whatever TinyCloud compatibility behavior is needed to preserve a coherent Azure CLI-shaped workflow for each area.
+- `tinyterraform` should target full wrapper coverage only for the parts of the current implemented TinyCloud emulation scope that have credible real Terraform provider/resource coverage and that TinyCloud can satisfy accurately.
+- Final per-tool command-family guarantees should still be documented and locked only after the standalone wrapper surfaces exist in real code and can be verified against actual behavior.
 
 ### CLI product structure
 - The LocalStack analogue should be:
@@ -434,8 +437,8 @@ This should happen in this order:
 3. introduce shared cloud-agnostic CLI/runtime support outside provider-specific trees
 4. complete the first-class `tinycloud` CLI as the LocalStack-style main product command
 5. promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
-6. implement standalone `tinyaz` with the same Model 2 supported-subset direction
-7. then define and verify the supported wrapper contract instead of promising blanket parity
+6. implement standalone `tinyaz` across all 18 current TinyCloud emulation-scope areas
+7. then define and verify the final per-tool wrapper contract for the current TinyCloud emulation scope, including the narrower Terraform-feasible portion of that scope
 
 ### CLI migration plan
 
@@ -479,7 +482,7 @@ The roadmap should follow the same practical pattern used by successful local cl
 2. Move the main CLI and wrapper entrypoints to `tinycloud\cmd`
 3. Complete the cohesive `tinycloud` CLI product surface
 4. Promote `tinyterraform` into a first-class parity-focused compatibility command with Model 2 routing for the officially supported subset
-5. Implement standalone `tinyaz` with the same Model 2 supported-subset direction
+5. Implement standalone `tinyaz` across all 18 current TinyCloud emulation-scope areas
 
 #### Tier 1: complete the core application workflow set
 
