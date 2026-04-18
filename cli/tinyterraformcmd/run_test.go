@@ -3,6 +3,7 @@ package tinyterraformcmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -217,10 +218,19 @@ func TestPowerShellSingleQuotedEscapesEmbeddedQuotes(t *testing.T) {
 	}
 }
 
-func TestTinyTerraformAzShimScriptIncludesExpectedCommands(t *testing.T) {
+func TestLoadTinyTerraformAzShimScriptIncludesExpectedCommands(t *testing.T) {
 	t.Parallel()
 
-	script := TinyTerraformAzShimScript()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+
+	script, err := LoadTinyTerraformAzShimScript(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadTinyTerraformAzShimScript() error = %v", err)
+	}
 	for _, expected := range []string{
 		`account" -and $Args[1] -eq "show`,
 		`account" -and $Args[1] -eq "get-access-token`,
@@ -228,7 +238,7 @@ func TestTinyTerraformAzShimScriptIncludesExpectedCommands(t *testing.T) {
 		`unsupported az command`,
 	} {
 		if !strings.Contains(script, expected) {
-			t.Fatalf("TinyTerraformAzShimScript() missing %q", expected)
+			t.Fatalf("LoadTinyTerraformAzShimScript() missing %q", expected)
 		}
 	}
 }
@@ -237,7 +247,13 @@ func TestEnsureTinyTerraformAzShimCreatesExpectedFiles(t *testing.T) {
 	t.Parallel()
 
 	runtimeRoot := t.TempDir()
-	shimDir, shimLog, err := EnsureTinyTerraformAzShim(runtimeRoot, func(name string) (string, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+
+	shimDir, shimLog, err := EnsureTinyTerraformAzShim(runtimeRoot, repoRoot, func(name string) (string, error) {
 		if name != "pwsh" {
 			t.Fatalf("ResolvePowerShellExe lookPath asked for %q, want pwsh first", name)
 		}
@@ -263,5 +279,16 @@ func TestEnsureTinyTerraformAzShimCreatesExpectedFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(launcher), `pwsh.exe`) || !strings.Contains(string(launcher), `azshim.ps1`) {
 		t.Fatalf("az.cmd = %q, want embedded pwsh launcher and azshim target", string(launcher))
+	}
+	expected, err := LoadTinyTerraformAzShimScript(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadTinyTerraformAzShimScript() error = %v", err)
+	}
+	actual, err := os.ReadFile(filepath.Join(shimDir, "azshim.ps1"))
+	if err != nil {
+		t.Fatalf("ReadFile(azshim.ps1) error = %v", err)
+	}
+	if got := string(actual); got != expected {
+		t.Fatalf("azshim.ps1 = %q, want shared asset contents", got)
 	}
 }

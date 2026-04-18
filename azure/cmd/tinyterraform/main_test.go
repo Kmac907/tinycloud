@@ -12,6 +12,34 @@ import (
 	"testing"
 )
 
+func TestTinyTerraformWrappersReferenceSharedAzShimAsset(t *testing.T) {
+	t.Parallel()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	azureRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	repoRoot := filepath.Dir(azureRoot)
+
+	for _, path := range []string{
+		filepath.Join(repoRoot, "scripts", "tinyterraform.ps1"),
+		filepath.Join(azureRoot, "scripts", "tinyterraform.ps1"),
+	} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%q) error = %v", path, err)
+		}
+		text := string(content)
+		if !strings.Contains(text, "Resolve-TinyTerraformAzShimAssetPath") {
+			t.Fatalf("%s does not reference shared az shim asset resolution", path)
+		}
+		if !strings.Contains(text, "tinyterraform-azshim.ps1") {
+			t.Fatalf("%s does not reference shared tinyterraform-azshim.ps1 asset", path)
+		}
+	}
+}
+
 func runtimeExeMatches(t *testing.T, runtimeRoot, prefix string) []string {
 	t.Helper()
 

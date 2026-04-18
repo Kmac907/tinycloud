@@ -110,6 +110,27 @@ function Resolve-TinyTerraformRuntimeRoot {
     return (Join-Path $repoRoot ".tinyterraform-runtime")
 }
 
+function Resolve-TinyTerraformAzShimAssetPath {
+    param([string]$TinyTerraformRepoRoot)
+
+    $candidates = @(
+        (Join-Path $TinyTerraformRepoRoot "scripts\\tinyterraform-azshim.ps1")
+    )
+
+    $parent = Split-Path -Parent $TinyTerraformRepoRoot
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        $candidates += (Join-Path $parent "scripts\\tinyterraform-azshim.ps1")
+    }
+
+    foreach ($assetPath in $candidates) {
+        if (Test-Path $assetPath) {
+            return $assetPath
+        }
+    }
+
+    throw "could not locate shared tinyterraform az shim asset from $TinyTerraformRepoRoot"
+}
+
 function Resolve-TinyTerraformHostsPath {
     if (-not [string]::IsNullOrWhiteSpace($env:TINYTERRAFORM_HOSTS_PATH)) {
         return $env:TINYTERRAFORM_HOSTS_PATH
@@ -327,8 +348,10 @@ if (-not $requiresTinyCloudRuntime) {
     exit $LASTEXITCODE
 }
 
+$tinyterraformRepoRoot = Resolve-TinyTerraformRepoRoot -TinyCloudSourceRoot $repoRoot
+$azShimAssetPath = Resolve-TinyTerraformAzShimAssetPath -TinyTerraformRepoRoot $tinyterraformRepoRoot
+
 if ($terraformSubcommand -eq "init") {
-    $tinyterraformRepoRoot = Resolve-TinyTerraformRepoRoot -TinyCloudSourceRoot $repoRoot
     $tinyterraformMainPackage = Resolve-TinyTerraformMainPackage -TinyTerraformRepoRoot $tinyterraformRepoRoot
     New-Item -ItemType Directory -Force $runtimeRoot | Out-Null
 
@@ -376,73 +399,7 @@ exit /b %ERRORLEVEL%
 '@ -f $shimPowerShellExe
     Set-Content -Path (Join-Path $shimDir "az.cmd") -Value $azShimLauncher
 
-    $azShimScript = @'
-param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
-
-$logPath = $env:TINYTERRAFORM_AZ_LOG
-Add-Content -Path $logPath -Value ($Args -join ' ')
-
-$account = @{
-    id = $env:ARM_SUBSCRIPTION_ID
-    name = "TinyCloud"
-    user = @{
-        name = "tinycloud"
-        type = "servicePrincipal"
-    }
-    tenantId = $env:ARM_TENANT_ID
-    environmentName = "AzureCloud"
-    isDefault = $true
-}
-
-if ($Args.Length -ge 1 -and $Args[0] -eq "version") {
-    @{
-        "azure-cli" = "2.99.0"
-        "azure-cli-core" = "2.99.0"
-    } | ConvertTo-Json -Compress
-    exit 0
-}
-
-if ($Args.Length -ge 2 -and $Args[0] -eq "account" -and $Args[1] -eq "show") {
-    $account | ConvertTo-Json -Compress
-    exit 0
-}
-
-if ($Args.Length -ge 2 -and $Args[0] -eq "account" -and $Args[1] -eq "list") {
-    @($account) | ConvertTo-Json -Compress -AsArray
-    exit 0
-}
-
-if ($Args.Length -ge 2 -and $Args[0] -eq "account" -and $Args[1] -eq "get-access-token") {
-    $resource = "https://management.azure.com/"
-    for ($i = 0; $i -lt $Args.Length; $i++) {
-        if ($Args[$i] -eq "--resource" -and $i + 1 -lt $Args.Length) {
-            $resource = $Args[$i + 1]
-        }
-        if ($Args[$i] -eq "--scope" -and $i + 1 -lt $Args.Length) {
-            $resource = ($Args[$i + 1] -replace "/.default$", "")
-        }
-    }
-
-    $token = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:4566/oauth/token" -Body @{ resource = $resource }
-    $expiresAt = (Get-Date).AddHours(1)
-    @{
-        accessToken = $token.access_token
-        expiresOn = $expiresAt.ToString("yyyy-MM-dd HH:mm:ss.ffffff")
-        expires_on = [int][double]::Parse((Get-Date $expiresAt -UFormat %s))
-        subscription = $env:ARM_SUBSCRIPTION_ID
-        tenant = $env:ARM_TENANT_ID
-        tokenType = "Bearer"
-    } | ConvertTo-Json -Compress
-    exit 0
-}
-
-Write-Error ("unsupported az command: " + ($Args -join " "))
-exit 1
-'@
-    Set-Content -Path (Join-Path $shimDir "azshim.ps1") -Value $azShimScript
+    Set-Content -Path (Join-Path $shimDir "azshim.ps1") -Value (Get-Content -Raw $azShimAssetPath)
 }
 
 $env:GOCACHE = $goCache
