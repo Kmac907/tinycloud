@@ -10,6 +10,7 @@ The current repo includes a Terraform example for `azurerm_resource_group` under
 - the wrapper has been manually verified end to end for `init`, `apply`, and `destroy` against `azurerm_resource_group`
 - the current officially supported Terraform compatibility subset is still narrow: the verified `azurerm_resource_group` example plus non-runtime passthrough commands such as `help`, `version`, `login`, `logout`, `console`, and subcommand help
 - the roadmap direction is to keep promoting `tinyterraform` toward a first-class Model 2 compatibility command across the current TinyCloud emulation scope wherever credible Terraform provider/resource coverage exists, rather than claiming blanket `azurerm` parity beyond what real Terraform can support
+- official Terraform provider coverage is broader than the current `tinyterraform` verified subset; many additional TinyCloud service/resource families are Terraform-feasible in principle, but TinyCloud has not yet validated and locked that broader contract
 - the current PowerShell wrapper is a transitional compatibility path, not the intended long-term product dependency model; normal TinyCloud usage is intended to converge on compiled cross-platform CLI binaries
 
 ## Provider Shape
@@ -113,7 +114,35 @@ With that convergence complete, roadmap item `#5` is complete and the next wrapp
 - In the current wrapper implementation, `tinycloud env terraform` is used primarily to obtain subscription, tenant, and certificate/bootstrap state for the runtime path; those extra `TINY_*` service endpoint hints are available for manual tooling and future parity work, but are not yet broadly propagated by `tinyterraform` into the Terraform child process as automatic per-service provider routing.
 - Separate service endpoints still exist and are advertised by TinyCloud itself. For example ARM storage-account responses include `properties.primaryEndpoints.blob`, and Key Vault ARM responses include `properties.vaultUri`.
 - That means the current architecture can support provider flows that use ARM first and then discover a service-specific endpoint from ARM or explicit environment, but broad automatic per-service Terraform compatibility is not yet claimed or verified.
-- The currently verified Terraform compatibility target remains the ARM-side `azurerm_resource_group` flow. Additional service-specific Terraform parity belongs to the later per-tool contract work against the current TinyCloud emulation scope, and remains limited by what real Terraform provider/resource coverage can support.
+- The currently verified Terraform compatibility target remains the ARM-side `azurerm_resource_group` flow. Additional service-specific Terraform parity belongs to the explicit later `tinyterraform` expansion step after the per-tool contract is locked, and remains limited by what real Terraform provider/resource coverage can support.
+
+## Future Scope Guidance
+
+The strongest future `tinyterraform` targets are the resource-oriented Azure families that already have clear Terraform provider coverage and that TinyCloud already implements in some form. The most likely supported families are:
+
+- ARM resource groups
+- storage accounts
+- Blob containers
+- storage queues
+- storage tables and table entities
+- Key Vault resources and secrets
+- virtual networks and subnets
+- network security groups and rules
+- private DNS zones and A records
+- Service Bus namespaces, queues, topics, and subscriptions
+- Event Hubs namespaces, hubs, and consumer groups
+- selective App Configuration, Cosmos DB, and deployment-template-backed resources once the real provider contract is verified against TinyCloud
+
+That future scope is broader than today's verified support, but it is still not the same as blanket AzureRM parity.
+
+The primary things `tinyterraform` should not treat as its main future contract are live operational objects such as:
+
+- queue messages
+- Service Bus messages
+- event payload publishing or consumption
+- Cosmos document CRUD
+
+Those workflows are generally better treated as application-client, SDK, direct API, or later command-specific compatibility scenarios rather than the primary Terraform compatibility surface.
 
 ## Notes And Overrides
 

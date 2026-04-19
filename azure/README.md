@@ -114,6 +114,9 @@ Current roadmap direction:
 
 - `tinyaz` is intended to cover all 18 current emulation-scope areas
 - `tinyterraform` is intended to cover the Terraform-feasible portion of that same scope
+- the broader `tinyterraform` implementation work has its own explicit roadmap step after contract locking; it is not just implied future work inside the contract definition step
+- the strongest future `tinyterraform` targets are the resource-oriented Azure families Terraform already covers well: storage accounts, Blob containers, storage queues, storage tables and table entities, Key Vault resources and secrets, VNets, subnets, NSGs, private DNS zones and records, Service Bus namespaces/queues/topics/subscriptions, Event Hubs namespaces/hubs/consumer groups, and selective App Configuration, Cosmos DB, or deployment-template-backed resources once the real provider contract is verified against TinyCloud
+- live operational objects such as queue messages, Service Bus messages, event payload publishing/consumption, and Cosmos document CRUD are not the primary `tinyterraform` target even when TinyCloud implements the underlying service
 
 The current `tinyterraform` support is still narrow and ARM-first. See [docs/terraform.md](docs/terraform.md) for the current support statement and routing notes.
 
@@ -134,6 +137,7 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 - ARM deployment execution is still partial and intentionally narrow
 - `tinyterraform` support is still limited by real Terraform provider/resource coverage
 - `tinyterraform` is still ARM-first today; broad automatic per-service Terraform routing is not yet verified
+- many additional AzureRM resource families are Terraform-feasible in principle, but TinyCloud has not yet validated and locked that broader `tinyterraform` contract
 - standalone `tinyaz` is not implemented yet
 - some current Windows wrapper flows still use PowerShell; removing PowerShell as a hard dependency for normal CLI usage remains an explicit portability goal
 - this is not a blanket Azure CLI, Terraform-provider, or SDK parity environment today
