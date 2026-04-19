@@ -272,6 +272,8 @@ Apply middleware in this order:
 - The wrapper parity target should track the current TinyCloud emulation scope rather than only the runtime listener list. Today that means the 18 emulator areas documented in the README current-emulation-scope table.
 - `tinyaz` should target full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas, with the wrapper responsible for whatever TinyCloud compatibility behavior is needed to preserve a coherent Azure CLI-shaped workflow for each area.
 - `tinyterraform` should target full wrapper coverage only for the parts of the current implemented TinyCloud emulation scope that have credible real Terraform provider/resource coverage and that TinyCloud can satisfy accurately.
+- In practice, the strongest future `tinyterraform` targets are ARM and resource-oriented families first: resource groups, storage accounts, Blob containers, storage queues, storage tables and table entities, Key Vault resources and secrets, virtual networks, subnets, network security groups and rules, private DNS zones and A records, Service Bus namespaces/queues/topics/subscriptions, Event Hubs namespaces/hubs/consumer groups, and selective App Configuration, Cosmos DB, and limited deployment-template-backed resources once the real provider contract is verified against TinyCloud.
+- Live operational objects such as queue messages, Service Bus messages, event payload publishing/consumption, and Cosmos document CRUD are not the primary `tinyterraform` target even when the underlying emulator service exists, because they are weaker Terraform fits than resource-oriented control-plane or nested resource contracts.
 - Final per-tool command-family guarantees should still be documented and locked only after the standalone wrapper surfaces exist in real code and can be verified against actual behavior.
 
 ### CLI product structure
@@ -583,6 +585,8 @@ The current 18-area emulation scope is already implemented or intentionally part
 
 - Lock the exact supported command-family contract for `tinyterraform` and `tinyaz`.
 - Keep `tinyterraform` explicitly limited to the Terraform-feasible portion of the current emulation scope.
+- For `tinyterraform`, expand the contract in a resource-oriented order: ARM resources first, then storage child resources, then Key Vault and messaging nested resources, and only then selective App Configuration, Cosmos DB, Blob-object, or limited deployment-template-backed resources where the real provider contract is validated against TinyCloud.
+- Do not treat live queue messages, Service Bus messages, event payloads, or Cosmos document CRUD as the primary `tinyterraform` contract.
 - Add tests and docs that reflect the supported contract rather than implied behavior.
 
 #### Verified Terraform integration
