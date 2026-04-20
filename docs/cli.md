@@ -36,12 +36,34 @@ If you want real installed commands like `tinycloud init`, build the binaries un
 
 The intended end state is that normal TinyCloud usage happens through compiled binaries on `PATH`, not through mandatory PowerShell wrappers. The current PowerShell scripts are transitional compatibility paths while the remaining wrapper/runtime orchestration is moved into the Go command layer.
 
+Current implemented `tinycloud` help surface:
+
+- `start [--attached|--detached] [--services <list>] [--json]`
+- `stop`
+- `restart [--detached|--attached]`
+- `wait [--timeout <duration>]`
+- `logs [-f]`
+- `status [runtime|services] [--json]`
+- `config show [--json]`
+- `config validate`
+- `services list [--json]`
+- `services enable <names...>`
+- `services disable <names...>`
+- `init`
+- `reset`
+- `endpoints [--json]`
+- `snapshot create [path]`
+- `snapshot restore <path>`
+- `seed apply <path>`
+- `env terraform`
+- `env pulumi`
+
 Planned install and environment-preparation commands:
 
 - `tinycloud setup`
 - `tinycloud setup --full`
 
-Those commands are part of the planned distribution model and are not implemented today. See [distribution.md](distribution.md).
+Those commands are part of the planned distribution model and are not implemented today. They are not part of the current `tinycloud` help surface. See [distribution.md](distribution.md).
 
 ## Runtime Model
 
@@ -99,15 +121,16 @@ The human-readable terminal UX follows a LocalStack-style shape:
 
 For the Docker backend, `status runtime` still reports the active TinyCloud container identity and image.
 
-## Compatibility Wrappers
+## Model 2 Command Direction
 
-TinyCloud's compatibility direction is intentionally LocalStack-style:
+TinyCloud's command direction is intentionally LocalStack-style and Model 2:
 
+- `tinycloud` is the native Model 2 TinyCloud command surface for runtime lifecycle, status, endpoints, config, services, and environment helpers
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
 - `tinyaz` is the planned TinyCloud analogue to `azlocal`
-- users should be able to keep using normal Terraform and Azure CLI habits with minimal TinyCloud-specific setup
-- both wrappers should invoke the real upstream binaries under the hood rather than reimplementing their command sets
-- for officially supported command and resource families, both wrappers target a Model 2 shape: classify the command family, resolve the correct TinyCloud management or service endpoint, and preserve the normal upstream command structure
+- users should be able to keep using normal TinyCloud and Terraform command habits with minimal TinyCloud-specific setup
+- `tinyterraform` and future `tinyaz` should invoke the real upstream binaries under the hood rather than reimplementing their command sets
+- for officially supported command and resource families, both `tinycloud` and `tinyterraform` target a Model 2 shape: preserve the normal command structure and let the CLI resolve the correct TinyCloud runtime, management endpoint, or service endpoint underneath
 - wrapper parity is intended to track the current TinyCloud emulation scope rather than only the runtime listener list; today that means the 18 emulator areas listed in the current-emulation-scope table
 - `tinyaz` is intended to grow toward full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas, with the wrapper responsible for whatever TinyCloud compatibility behavior is needed to preserve a coherent Azure CLI-shaped workflow for each area
 - `tinyterraform` is intended to grow toward full wrapper coverage only for the parts of the current implemented TinyCloud emulation scope that have credible real Terraform provider/resource coverage and that TinyCloud can satisfy accurately

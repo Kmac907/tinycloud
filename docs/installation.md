@@ -44,6 +44,7 @@ Current state:
 - `tinycloud.exe` is the main installed runtime CLI
 - `tinyterraform.exe` is the installed Terraform compatibility wrapper
 - `tinyaz.exe` is not buildable yet because standalone `cmd\tinyaz` does not exist today
+- the current `tinycloud` help surface does not include `setup` or `setup --full`
 
 When standalone `tinyaz` is implemented, it should be built separately like the other commands:
 
@@ -66,6 +67,8 @@ Planned official install story:
 3. let the CLI validate or install the full local suite
 
 That bootstrap-plus-setup flow is planned, not implemented today.
+
+Today, the installed `tinycloud` CLI surface is the same one exposed by `go run .\cmd\tinycloud`: `start`, `stop`, `restart`, `wait`, `logs`, `status`, `config`, `services`, `init`, `reset`, `endpoints`, `snapshot`, `seed`, and `env`. `tinycloud setup` and `tinycloud setup --full` belong to the roadmap, not the current installed binary behavior.
 
 See [distribution.md](distribution.md) for the broader packaging and release model.
 
@@ -116,6 +119,7 @@ Both paths use the same command entrypoint code. The difference is only whether 
 ## Notes
 
 - The installed CLI shape currently covers `tinycloud` and `tinyterraform`.
+- Both `tinycloud` and `tinyterraform` should be documented as Model 2 command surfaces: keep the normal command shape and have the CLI resolve TinyCloud-managed runtime or endpoint wiring on the user's behalf.
 - `tinyterraform` runtime-routed flows still have the same current Windows privilege requirements documented in [../azure/docs/terraform.md](../azure/docs/terraform.md).
 - Standalone `tinyaz` should be documented as an installable binary only after `cmd\tinyaz` actually exists.
 - PowerShell should be treated as a transitional compatibility tool, not the long-term product dependency model for normal TinyCloud CLI usage.

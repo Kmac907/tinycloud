@@ -239,6 +239,7 @@ Apply middleware in this order:
 - `tinycloud` should be the main cohesive product CLI, analogous to the `localstack` CLI.
 - `setup` should validate and prepare the local TinyCloud environment before normal runtime use.
 - `setup --full` should become the first-run install command that validates or installs the full local suite, including the runtime image, config/data roots, wrapper binaries, and supported toolchain prerequisites.
+- Current note: the implemented `tinycloud` help surface already includes `start`, `stop`, `restart`, `wait`, `logs`, `status`, `config`, `services`, `init`, `reset`, `endpoints`, `snapshot`, `seed`, and `env`, but it does not include `setup` or `setup --full` today.
 - `start` launches TinyCloud locally and should support both attached and detached runtime operation.
 - `start` should default to detached startup, print the startup summary and next commands, and return control to the shell.
 - `start --attached` should be the explicit foreground/log-streaming mode.
@@ -268,7 +269,8 @@ Apply middleware in this order:
 - Compatibility logic should live in the wrapper layer when possible so user Terraform and Azure CLI workflows stay close to their normal cloud equivalents.
 - PowerShell must not remain a hard product dependency for normal `tinycloud`, `tinyterraform`, or `tinyaz` usage; compiled CLI binaries should be the primary user-facing surface across Windows, macOS, and Linux.
 - Any remaining PowerShell scripts should be treated as transitional compatibility shims rather than the long-term product command surface.
-- The target compatibility model for both `tinyterraform` and `tinyaz` is Model 2 where TinyCloud officially supports the command/resource family: the wrapper should classify the command family, resolve the correct TinyCloud endpoint or service endpoint, and preserve the normal upstream command shape instead of requiring users to fall back to manual endpoint helpers for supported flows.
+- The target command model is Model 2: `tinycloud` should be the native Model 2 product CLI, and `tinyterraform` plus future `tinyaz` should be Model 2 compatibility wrappers where TinyCloud officially supports the command/resource family.
+- For those supported flows, the CLI should preserve the normal command shape and resolve the correct TinyCloud runtime, management endpoint, or service endpoint instead of forcing users onto manual endpoint-helper steps.
 - The wrapper parity target should track the current TinyCloud emulation scope rather than only the runtime listener list. Today that means the 18 emulator areas documented in the README current-emulation-scope table.
 - `tinyaz` should target full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas, with the wrapper responsible for whatever TinyCloud compatibility behavior is needed to preserve a coherent Azure CLI-shaped workflow for each area.
 - `tinyterraform` should target full wrapper coverage only for the parts of the current implemented TinyCloud emulation scope that have credible real Terraform provider/resource coverage and that TinyCloud can satisfy accurately.
@@ -387,6 +389,7 @@ Apply middleware in this order:
 - `tinycloud setup` should validate and prepare the local TinyCloud environment.
 - `tinycloud setup --full` should own the first-run install and validation flow for the full local suite.
 - `tinycloud setup --full` should verify Docker, initialize config/data roots, prepare runtime metadata, validate wrapper prerequisites, and later manage supported upstream tool versions where appropriate.
+- These setup commands are roadmap items, not current implemented CLI commands.
 
 ### Toolchain model
 - `tinyterraform` should continue to use a real Terraform binary rather than a reimplementation.

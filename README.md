@@ -82,6 +82,8 @@ tinycloud status runtime
 
 Standalone `tinyaz` is planned but not implemented yet, so there is no `cmd\tinyaz` build target today.
 
+The current `tinycloud` help surface includes `start`, `stop`, `restart`, `wait`, `logs`, `status`, `config`, `services`, `init`, `reset`, `endpoints`, `snapshot`, `seed`, and `env`. It does not include `setup` or `setup --full` today.
+
 The current install path is still manual. The intended official install story is:
 
 1. bootstrap the `tinycloud` CLI from your own TinyCloud domain
@@ -116,6 +118,17 @@ Planned install and distribution command surface:
 
 - `tinycloud setup`: validate and prepare the local TinyCloud environment
 - `tinycloud setup --full`: bootstrap the full local suite, including runtime image, config/data roots, and supported toolchain validation or management
+
+Those `setup` commands are part of the planned distribution model only. They are not in the current `tinycloud` CLI help output.
+
+## Model 2 Direction
+
+TinyCloud's current command direction is Model 2 for both `tinycloud` and `tinyterraform`:
+
+- `tinycloud` is the native Model 2 TinyCloud CLI: users keep a normal product command shape while the CLI manages the local runtime, status, endpoints, and environment wiring
+- `tinyterraform` is the Terraform-facing Model 2 compatibility command: for supported flows it preserves normal Terraform command shape while routing to the correct TinyCloud-managed runtime and endpoints
+
+The planned `tinyaz` command is intended to follow that same Model 2 direction once it exists as a standalone command.
 
 ## Where To Read Next
 
