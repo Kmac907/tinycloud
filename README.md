@@ -80,7 +80,7 @@ tinycloud start
 tinycloud status runtime
 ```
 
-`tinyaz` now has a standalone `cmd\tinyaz` build target, but the current command surface is intentionally narrow: `version`, `account show`, `account list`, and `account get-access-token`.
+`tinyaz` now has a standalone `cmd\tinyaz` build target. It follows the wrapper direction: the current TinyCloud-routed subset is `account show`, `account list`, and `account get-access-token`, while other commands pass through to the real `az` CLI.
 
 The current `tinycloud` help surface includes `start`, `stop`, `restart`, `wait`, `logs`, `status`, `config`, `services`, `init`, `reset`, `endpoints`, `snapshot`, `seed`, and `env`. It does not include `setup` or `setup --full` today.
 
@@ -98,7 +98,7 @@ That bootstrap-plus-setup flow is planned, not implemented today.
 | --- | --- | --- |
 | `tinycloud` | implemented today | Go for source builds; Docker is the typical local runtime backend |
 | `tinyterraform` | implemented today | Terraform must be installed locally |
-| `tinyaz` | implemented today for the initial account/token subset | no external `az` dependency for the current built-in subset |
+| `tinyaz` | implemented today as a standalone wrapper with the initial account/token subset | Azure CLI `az` is required locally for passthrough flows |
 
 Current note:
 
@@ -112,7 +112,7 @@ Current repo-root command surfaces:
 - `tinycloud`: runtime lifecycle, status, endpoints, config, logs, services, and environment helpers
 - `tinycloudd`: local daemon entrypoint for the managed process backend
 - `tinyterraform`: Terraform compatibility wrapper for the current Azure-backed TinyCloud runtime
-- `tinyaz`: standalone Azure CLI compatibility command for the current account/token subset
+- `tinyaz`: standalone Azure CLI compatibility wrapper with the initial TinyCloud-routed account/token subset
 
 Planned install and distribution command surface:
 
@@ -128,7 +128,7 @@ TinyCloud's current command direction is Model 2 for both `tinycloud` and `tinyt
 - `tinycloud` is the native Model 2 TinyCloud CLI: users keep a normal product command shape while the CLI manages the local runtime, status, endpoints, and environment wiring
 - `tinyterraform` is the Terraform-facing Model 2 compatibility command: for supported flows it preserves normal Terraform command shape while routing to the correct TinyCloud-managed runtime and endpoints
 
-`tinyaz` now begins that same Model 2 direction as a standalone command, but its current support is intentionally limited to the initial account/token subset rather than the full planned 18-area wrapper surface.
+`tinyaz` now begins that same Model 2 direction as a standalone wrapper command, but its current TinyCloud-routed support is intentionally limited to the initial account/token subset rather than the full planned 18-area wrapper surface.
 
 ## Where To Read Next
 

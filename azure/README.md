@@ -91,7 +91,7 @@ TinyCloud exposes three user-facing command surfaces:
 
 - `tinycloud`: runtime lifecycle, status, endpoints, config, logs, services, and environment helpers
 - `tinyterraform`: Terraform compatibility wrapper
-- `tinyaz`: standalone Azure CLI compatibility command for the current account/token subset
+- `tinyaz`: standalone Azure CLI compatibility wrapper with the initial TinyCloud-routed account/token subset
 
 The built-in `tinycloud` CLI manages the local runtime through the repo-root Go entrypoints under `cmd\...` and the repo-root wrappers under `scripts\...`.
 
@@ -107,7 +107,7 @@ See:
 TinyCloud follows a LocalStack-style wrapper model:
 
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
-- `tinyaz` is now the first standalone TinyCloud analogue to `azlocal`, starting with a narrow account/token subset
+- `tinyaz` is now the first standalone TinyCloud analogue to `azlocal`, starting with a narrow TinyCloud-routed account/token subset
 - both wrappers should preserve normal upstream command shape as closely as practical
 - the fuller planned wrapper surfaces should invoke the real upstream tools rather than reimplementing their command sets
 
@@ -139,7 +139,7 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 - `tinyterraform` support is still limited by real Terraform provider/resource coverage
 - `tinyterraform` is still ARM-first today; broad automatic per-service Terraform routing is not yet verified
 - many additional AzureRM resource families are Terraform-feasible in principle, but TinyCloud has not yet validated and locked that broader `tinyterraform` contract
-- standalone `tinyaz` currently exists only for the initial account/token subset and does not yet provide the broader planned Azure CLI wrapper coverage
+- standalone `tinyaz` currently exists as a wrapper entrypoint with the initial TinyCloud-routed account/token subset and does not yet provide the broader planned Azure CLI wrapper coverage
 - some current Windows wrapper flows still use PowerShell; removing PowerShell as a hard dependency for normal CLI usage remains an explicit portability goal
 - this is not a blanket Azure CLI, Terraform-provider, or SDK parity environment today
 

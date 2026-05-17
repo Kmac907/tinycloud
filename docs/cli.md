@@ -127,12 +127,12 @@ TinyCloud's command direction is intentionally LocalStack-style and Model 2:
 
 - `tinycloud` is the native Model 2 TinyCloud command surface for runtime lifecycle, status, endpoints, config, services, and environment helpers
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
-- `tinyaz` is now the first standalone TinyCloud analogue to `azlocal`, starting with a narrow account/token subset
+- `tinyaz` is now the first standalone TinyCloud analogue to `azlocal`, starting with a narrow TinyCloud-routed account/token subset
 - users should be able to keep using normal TinyCloud and Terraform command habits with minimal TinyCloud-specific setup
-- `tinyterraform` and the fuller planned `tinyaz` surface should invoke the real upstream binaries under the hood rather than reimplementing their command sets
+- `tinyterraform` and `tinyaz` should invoke the real upstream binaries under the hood where the supported flow allows it, rather than reimplementing their command sets
 - for officially supported command and resource families, both `tinycloud` and `tinyterraform` target a Model 2 shape: preserve the normal command structure and let the CLI resolve the correct TinyCloud runtime, management endpoint, or service endpoint underneath
 - wrapper parity is intended to track the current TinyCloud emulation scope rather than only the runtime listener list; today that means the 18 emulator areas listed in the current-emulation-scope table
-- `tinyaz` currently supports `version`, `account show`, `account list`, and `account get-access-token` as a first standalone slice, and it is intended to grow toward full wrapper coverage across all 18 current implemented TinyCloud emulation-scope areas
+- `tinyaz` currently exists as a standalone wrapper entrypoint; its current TinyCloud-routed subset is `account show`, `account list`, and `account get-access-token`, while other commands currently pass through to the real `az` CLI
 - `tinyterraform` is intended to grow toward full wrapper coverage only for the parts of the current implemented TinyCloud emulation scope that have credible real Terraform provider/resource coverage and that TinyCloud can satisfy accurately
 - the broader `tinyterraform` implementation work belongs to its own explicit roadmap step after the per-tool contract is locked, rather than remaining implied inside contract wording alone
 - for `tinyterraform`, that future scope is expected to be resource-oriented first: ARM resources, storage accounts and child resources, Key Vault resources and secrets, networking resources, private DNS resources, Service Bus hierarchy resources, Event Hubs hierarchy resources, and selective App Configuration, Cosmos DB, or limited deployment-template-backed resources once verified
@@ -162,6 +162,6 @@ Current installed-binary shape:
 
 - `tinycloud.exe` can be built today from `cmd\tinycloud`
 - `tinyterraform.exe` can be built today from `cmd\tinyterraform`
-- `tinyaz.exe` can now be built today from `cmd\tinyaz`, with the current command surface limited to the standalone account/token subset
+- `tinyaz.exe` can now be built today from `cmd\tinyaz`, with the current TinyCloud-routed wrapper subset limited to the account/token family
 - PowerShell should not remain a hard dependency for normal CLI usage once that wrapper/runtime convergence work is complete
 - the planned bootstrap-plus-setup install story should eventually make the manual binary-build path optional rather than the default onboarding flow

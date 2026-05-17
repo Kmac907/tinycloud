@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 )
 
 type envLoader func(cwd string, required []string) (map[string]string, error)
+type azLookPath func(string) (string, error)
 
 type accountOutput struct {
 	ID               string          `json:"id"`
@@ -54,38 +56,27 @@ func Main() {
 }
 
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	code, err := RunE(args, stdin, stdout, stderr, os.Getwd, LoadTinyCloudTerraformEnv, time.Now)
+	code, err := RunE(args, stdin, stdout, stderr, os.Getwd, LoadTinyCloudTerraformEnv, time.Now, exec.LookPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 	}
 	return code
 }
 
-func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func() (string, error), loadEnv envLoader, now func() time.Time) (int, error) {
-	_ = stdin
-	_ = stderr
-
+func RunE(args []string, stdin io.Reader, stdout, stderr io.Writer, getwd func() (string, error), loadEnv envLoader, now func() time.Time, lookPath azLookPath) (int, error) {
 	if len(args) == 0 {
 		PrintUsage(stdout)
 		return 2, errors.New("usage: tinyaz <az arguments>")
 	}
-	if args[0] == "help" || requestsHelp(args) {
-		PrintUsage(stdout)
-		return 0, nil
+	if isTinyCloudAccountFlow(args) {
+		return runAccount(args[1:], stdout, getwd, loadEnv, now)
 	}
 
-	switch args[0] {
-	case "version":
-		return 0, writeJSON(stdout, map[string]string{
-			"azure-cli":      "2.99.0",
-			"azure-cli-core": "2.99.0",
-		})
-	case "account":
-		return runAccount(args[1:], stdout, getwd, loadEnv, now)
-	default:
-		PrintUsage(stdout)
-		return 2, fmt.Errorf("unsupported az command %q; supported commands: version, account show, account list, account get-access-token", args[0])
+	azExe, err := ResolveAzExe(lookPath)
+	if err != nil {
+		return 1, err
 	}
+	return tinyterraformcmd.RunCommand(azExe, args, stdin, stdout, stderr)
 }
 
 func runAccount(args []string, stdout io.Writer, getwd func() (string, error), loadEnv envLoader, now func() time.Time) (int, error) {
@@ -131,6 +122,81 @@ func runAccount(args []string, stdout io.Writer, getwd func() (string, error), l
 		})
 	default:
 		return 2, fmt.Errorf("unsupported az account command %q; supported commands: show, list, get-access-token", args[0])
+	}
+}
+
+func isTinyCloudAccountFlow(args []string) bool {
+	if len(args) < 2 || args[0] != "account" {
+		return false
+	}
+
+	switch args[1] {
+	case "show", "list":
+		return supportsJSONOutputOnly(args[2:])
+	case "get-access-token":
+		return supportsTinyCloudTokenArgs(args[2:])
+	default:
+		return false
+	}
+}
+
+func supportsJSONOutputOnly(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "-o" || args[i] == "--output":
+			if i+1 >= len(args) || !isJSONOutput(args[i+1]) {
+				return false
+			}
+			i++
+		case strings.HasPrefix(args[i], "--output="):
+			if !isJSONOutput(strings.TrimPrefix(args[i], "--output=")) {
+				return false
+			}
+		case strings.HasPrefix(args[i], "-o="):
+			if !isJSONOutput(strings.TrimPrefix(args[i], "-o=")) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func supportsTinyCloudTokenArgs(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--resource" || args[i] == "--scope" || args[i] == "-o" || args[i] == "--output":
+			if i+1 >= len(args) {
+				return false
+			}
+			if (args[i] == "-o" || args[i] == "--output") && !isJSONOutput(args[i+1]) {
+				return false
+			}
+			i++
+		case strings.HasPrefix(args[i], "--resource="):
+		case strings.HasPrefix(args[i], "--scope="):
+		case strings.HasPrefix(args[i], "--output="):
+			if !isJSONOutput(strings.TrimPrefix(args[i], "--output=")) {
+				return false
+			}
+		case strings.HasPrefix(args[i], "-o="):
+			if !isJSONOutput(strings.TrimPrefix(args[i], "-o=")) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isJSONOutput(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "json", "jsonc":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -234,14 +300,18 @@ func LoadTinyCloudTerraformEnv(cwd string, required []string) (map[string]string
 	return values, nil
 }
 
-func requestsHelp(args []string) bool {
-	for _, arg := range args {
-		switch arg {
-		case "-h", "--help", "-help":
-			return true
-		}
+func ResolveAzExe(lookPath azLookPath) (string, error) {
+	if override := strings.TrimSpace(os.Getenv("TINYAZ_EXE")); override != "" {
+		return override, nil
 	}
-	return false
+	if lookPath == nil {
+		return "", errors.New("Azure CLI was not found. Install Azure CLI or set TINYAZ_EXE")
+	}
+	path, err := lookPath("az")
+	if err != nil {
+		return "", errors.New("Azure CLI was not found. Install Azure CLI or set TINYAZ_EXE")
+	}
+	return path, nil
 }
 
 func writeJSON(w io.Writer, value any) error {
@@ -255,8 +325,15 @@ func writeJSON(w io.Writer, value any) error {
 
 func PrintUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `tinyaz commands:
-  version
+  <any az command>
   account show
   account list
-  account get-access-token [--resource <resource> | --scope <scope>]`)
+  account get-access-token [--resource <resource> | --scope <scope>]
+
+Current TinyCloud-routed subset:
+  account show
+  account list
+  account get-access-token
+
+Other commands pass through to the real az CLI.`)
 }

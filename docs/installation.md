@@ -27,7 +27,7 @@ tinycloud status runtime
 | --- | --- | --- |
 | `tinycloud` | implemented today | Go for source builds; Docker is the typical local runtime backend |
 | `tinyterraform` | implemented today | Terraform must be installed locally |
-| `tinyaz` | implemented today for the initial account/token subset | no external `az` dependency for the current built-in subset |
+| `tinyaz` | implemented today as a standalone wrapper with the initial account/token subset | Azure CLI `az` is required locally for passthrough flows |
 
 ## Build The Current CLI Binaries
 
@@ -45,7 +45,9 @@ Current state:
 - `tinycloud.exe` is the main installed runtime CLI
 - `tinyterraform.exe` is the installed Terraform compatibility wrapper
 - `tinyaz.exe` is now buildable from `cmd\tinyaz`
-- the current `tinyaz` command surface is intentionally narrow: `version`, `account show`, `account list`, and `account get-access-token`
+- `tinyaz.exe` is a standalone wrapper entrypoint
+- the current TinyCloud-routed `tinyaz` subset is intentionally narrow: `account show`, `account list`, and `account get-access-token`
+- other current `tinyaz` commands pass through to the real local `az` CLI
 - the current `tinycloud` help surface does not include `setup` or `setup --full`
 
 ## Current Install Story Versus Planned Install Story
@@ -94,7 +96,7 @@ If you also built `tinyterraform.exe`, verify it separately:
 tinyterraform version
 ```
 
-If you also built `tinyaz.exe`, verify the current subset separately:
+If you also built `tinyaz.exe`, verify the current wrapper shape separately:
 
 ```powershell
 tinyaz version
@@ -121,9 +123,9 @@ Both paths use the same command entrypoint code. The difference is only whether 
 
 ## Notes
 
-- The installed CLI shape currently covers `tinycloud`, `tinyterraform`, and the initial standalone `tinyaz` subset.
+- The installed CLI shape currently covers `tinycloud`, `tinyterraform`, and a standalone `tinyaz` wrapper entrypoint with the initial TinyCloud-routed account/token subset.
 - Both `tinycloud` and `tinyterraform` should be documented as Model 2 command surfaces: keep the normal command shape and have the CLI resolve TinyCloud-managed runtime or endpoint wiring on the user's behalf.
 - `tinyterraform` runtime-routed flows still have the same current Windows privilege requirements documented in [../azure/docs/terraform.md](../azure/docs/terraform.md).
-- `tinyaz` is now an installable binary, but it does not yet provide the broader planned Azure CLI wrapper coverage.
+- `tinyaz` is now an installable binary, but it still depends on a local `az` CLI for passthrough flows and it does not yet provide the broader planned Azure CLI wrapper coverage.
 - PowerShell should be treated as a transitional compatibility tool, not the long-term product dependency model for normal TinyCloud CLI usage.
 - The planned `tinycloud setup` and `tinycloud setup --full` flow belongs to the roadmap and distribution model, not the current implemented install surface.
