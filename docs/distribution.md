@@ -4,7 +4,7 @@ This page documents the intended TinyCloud packaging, bootstrap, and release mod
 
 Current state:
 
-- `tinycloud` and `tinyterraform` can be built locally from source today
+- `tinycloud`, `tinyterraform`, and `tinyaz` can be built locally from source today
 - the Docker runtime can be built and run locally today
 - the official bootstrap and `tinycloud setup --full` flow is planned, not implemented yet
 
@@ -25,7 +25,7 @@ Each release should publish:
 
 - `tinycloud` binary
 - `tinyterraform` binary
-- future `tinyaz` binary
+- `tinyaz` binary
 - SHA256 checksums
 - release notes
 - Docker image tags
@@ -125,7 +125,7 @@ Recommended model:
 Use an external dependency model first:
 
 - `tinyterraform` requires local Terraform
-- future `tinyaz` requires local Azure CLI `az`
+- `tinyaz` requires local Azure CLI `az` for passthrough flows
 
 ### Long-term
 
@@ -201,7 +201,7 @@ Deliver:
 - dependency detection for:
   - Docker
   - Terraform
-  - later `az`, once `tinyaz` exists
+  - Azure CLI `az`
 
 ### Phase 2
 
@@ -219,7 +219,7 @@ Deliver:
 - CLI-driven install and update flow for:
   - Docker image
   - `tinyterraform` dependencies
-  - future `tinyaz` dependencies
+  - `tinyaz` dependencies
 - version validation and compatibility reporting
 - `tinycloud doctor` or equivalent environment diagnostics
 
