@@ -14,13 +14,13 @@
 
 TinyCloud is a local cloud emulator project. The repo root holds the shared command surfaces, wrappers, and runtime-management layers. Provider-specific emulator implementations live under dedicated folders such as [`azure/`](azure), which is the first implemented emulator in the current repo.
 
-Normal product usage should converge on compiled `tinycloud`, `tinyterraform`, and future `tinyaz` binaries. The current PowerShell wrappers are transitional compatibility paths, not the intended long-term dependency model for normal cross-platform CLI usage.
+Normal product usage should converge on compiled `tinycloud`, `tinyterraform`, and `tinyaz` binaries. The current PowerShell wrappers are transitional compatibility paths, not the intended long-term dependency model for normal cross-platform CLI usage.
 
 ## What This Repo Contains
 
 At the top level:
 
-- [`cmd/`](cmd): top-level user-facing command entrypoints such as `tinycloud`, `tinycloudd`, and `tinyterraform`
+- [`cmd/`](cmd): top-level user-facing command entrypoints such as `tinycloud`, `tinycloudd`, `tinyterraform`, and `tinyaz`
 - [`cli/`](cli): shared command implementation layer used by those entrypoints
 - [`scripts/`](scripts): repo-root wrapper scripts for the current CLI/runtime workflow
 - [`azure/`](azure): the current implemented emulator, including its docs, runtime adapters, API handlers, examples, and roadmap
@@ -39,7 +39,6 @@ Azure currently has:
 - shared product docs under [docs/](docs)
 - Azure-specific docs under [azure/docs/](azure/docs)
 - examples under [azure/examples/](azure/examples)
-- the active roadmap under [azure/plan.md](azure/plan.md)
 
 ## Quick Start
 
@@ -69,6 +68,7 @@ To use real terminal commands like `tinycloud init` instead of `go run`, build t
 New-Item -ItemType Directory -Force .\bin | Out-Null
 go build -o .\bin\tinycloud.exe .\cmd\tinycloud
 go build -o .\bin\tinyterraform.exe .\cmd\tinyterraform
+go build -o .\bin\tinyaz.exe .\cmd\tinyaz
 $env:PATH = "$PWD\bin;$env:PATH"
 ```
 
@@ -80,7 +80,7 @@ tinycloud start
 tinycloud status runtime
 ```
 
-Standalone `tinyaz` is planned but not implemented yet, so there is no `cmd\tinyaz` build target today.
+`tinyaz` now has a standalone `cmd\tinyaz` build target, but the current command surface is intentionally narrow: `version`, `account show`, `account list`, and `account get-access-token`.
 
 The current `tinycloud` help surface includes `start`, `stop`, `restart`, `wait`, `logs`, `status`, `config`, `services`, `init`, `reset`, `endpoints`, `snapshot`, `seed`, and `env`. It does not include `setup` or `setup --full` today.
 
@@ -98,7 +98,7 @@ That bootstrap-plus-setup flow is planned, not implemented today.
 | --- | --- | --- |
 | `tinycloud` | implemented today | Go for source builds; Docker is the typical local runtime backend |
 | `tinyterraform` | implemented today | Terraform must be installed locally |
-| `tinyaz` | planned, not implemented yet | Azure CLI `az` is expected to be installed locally under the current wrapper model |
+| `tinyaz` | implemented today for the initial account/token subset | no external `az` dependency for the current built-in subset |
 
 Current note:
 
@@ -112,7 +112,7 @@ Current repo-root command surfaces:
 - `tinycloud`: runtime lifecycle, status, endpoints, config, logs, services, and environment helpers
 - `tinycloudd`: local daemon entrypoint for the managed process backend
 - `tinyterraform`: Terraform compatibility wrapper for the current Azure-backed TinyCloud runtime
-- `tinyaz`: planned Azure CLI compatibility wrapper, not implemented yet
+- `tinyaz`: standalone Azure CLI compatibility command for the current account/token subset
 
 Planned install and distribution command surface:
 
@@ -128,7 +128,7 @@ TinyCloud's current command direction is Model 2 for both `tinycloud` and `tinyt
 - `tinycloud` is the native Model 2 TinyCloud CLI: users keep a normal product command shape while the CLI manages the local runtime, status, endpoints, and environment wiring
 - `tinyterraform` is the Terraform-facing Model 2 compatibility command: for supported flows it preserves normal Terraform command shape while routing to the correct TinyCloud-managed runtime and endpoints
 
-The planned `tinyaz` command is intended to follow that same Model 2 direction once it exists as a standalone command.
+`tinyaz` now begins that same Model 2 direction as a standalone command, but its current support is intentionally limited to the initial account/token subset rather than the full planned 18-area wrapper surface.
 
 ## Where To Read Next
 

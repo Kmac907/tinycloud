@@ -63,6 +63,7 @@ To use real terminal commands like `tinycloud init` instead of repo-local `go ru
 New-Item -ItemType Directory -Force .\bin | Out-Null
 go build -o .\bin\tinycloud.exe .\cmd\tinycloud
 go build -o .\bin\tinyterraform.exe .\cmd\tinyterraform
+go build -o .\bin\tinyaz.exe .\cmd\tinyaz
 $env:PATH = "$PWD\bin;$env:PATH"
 ```
 
@@ -74,7 +75,7 @@ tinycloud start
 tinycloud status runtime
 ```
 
-See [../docs/installation.md](../docs/installation.md) for the full install/setup flow, including the future separate `tinyaz.exe` build once standalone `tinyaz` exists.
+See [../docs/installation.md](../docs/installation.md) for the full install/setup flow, including the current standalone `tinyaz.exe` build and its intentionally narrow initial command surface.
 
 The current install path is still manual. The intended official install story is:
 
@@ -90,7 +91,7 @@ TinyCloud exposes three user-facing command surfaces:
 
 - `tinycloud`: runtime lifecycle, status, endpoints, config, logs, services, and environment helpers
 - `tinyterraform`: Terraform compatibility wrapper
-- `tinyaz`: planned Azure CLI compatibility wrapper
+- `tinyaz`: standalone Azure CLI compatibility command for the current account/token subset
 
 The built-in `tinycloud` CLI manages the local runtime through the repo-root Go entrypoints under `cmd\...` and the repo-root wrappers under `scripts\...`.
 
@@ -106,9 +107,9 @@ See:
 TinyCloud follows a LocalStack-style wrapper model:
 
 - `tinyterraform` is the TinyCloud analogue to `tflocal`
-- `tinyaz` is the planned TinyCloud analogue to `azlocal`
+- `tinyaz` is now the first standalone TinyCloud analogue to `azlocal`, starting with a narrow account/token subset
 - both wrappers should preserve normal upstream command shape as closely as practical
-- both wrappers should invoke the real upstream tools rather than reimplementing their command sets
+- the fuller planned wrapper surfaces should invoke the real upstream tools rather than reimplementing their command sets
 
 Current roadmap direction:
 
@@ -138,7 +139,7 @@ The current `tinyterraform` support is still narrow and ARM-first. See [docs/ter
 - `tinyterraform` support is still limited by real Terraform provider/resource coverage
 - `tinyterraform` is still ARM-first today; broad automatic per-service Terraform routing is not yet verified
 - many additional AzureRM resource families are Terraform-feasible in principle, but TinyCloud has not yet validated and locked that broader `tinyterraform` contract
-- standalone `tinyaz` is not implemented yet
+- standalone `tinyaz` currently exists only for the initial account/token subset and does not yet provide the broader planned Azure CLI wrapper coverage
 - some current Windows wrapper flows still use PowerShell; removing PowerShell as a hard dependency for normal CLI usage remains an explicit portability goal
 - this is not a blanket Azure CLI, Terraform-provider, or SDK parity environment today
 
